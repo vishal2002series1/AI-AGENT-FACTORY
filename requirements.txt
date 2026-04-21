@@ -8,3 +8,7 @@ sqlalchemy
 pydantic
 mcp
 python-dotenv
+langgraph-checkpoint-sqlite
+arize
+arize-otel
+openinference-instrumentation-langchain
