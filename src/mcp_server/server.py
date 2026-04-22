@@ -3,6 +3,10 @@ import os
 import sqlite3
 import chromadb
 from mcp.server.fastmcp import FastMCP
+from dotenv import load_dotenv
+
+# Load environment variables (critical for Tavily)
+load_dotenv()
 
 # Initialize the MCP Server
 mcp = FastMCP("AeonWealthMCP")
@@ -29,7 +33,6 @@ def execute_sql(query: str) -> str:
     PortfolioData, FinancialPlanningFacts, ComplianceHub, UpcomingClientMeetings, TranscriptSummary.
     """
     try:
-        # Security: Enforce read-only for the MVP
         if query.strip().upper().startswith(("INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE")):
             return "Error: Only SELECT queries are allowed."
 
@@ -37,7 +40,6 @@ def execute_sql(query: str) -> str:
         cursor = conn.cursor()
         cursor.execute(query)
         
-        # Extract column names
         columns = [description[0] for description in cursor.description]
         rows = cursor.fetchall()
         conn.close()
@@ -45,7 +47,6 @@ def execute_sql(query: str) -> str:
         if not rows:
             return "No results found."
         
-        # Format the output as a Markdown-style table so the LLM can easily read it
         res = " | ".join(columns) + "\n"
         res += "-" * len(res) + "\n"
         for row in rows:
@@ -74,7 +75,6 @@ def search_transcripts(semantic_query: str, n_results: int = 3) -> str:
             return "No relevant transcripts found."
         
         res = "--- Retrieved Transcripts ---\n"
-        # Zip the documents and metadata together so the LLM knows which client said what
         for doc, meta in zip(results['documents'][0], results['metadatas'][0]):
             client_name = meta.get("client_name", "Unknown Client")
             res += f"[Client: {client_name}]: {doc}\n"
@@ -83,7 +83,30 @@ def search_transcripts(semantic_query: str, n_results: int = 3) -> str:
     except Exception as e:
         return f"Vector DB Error: {str(e)}"
 
+@mcp.tool()
+def search_market_news(query: str) -> str:
+    """
+    Search the web for real-time market news, macroeconomic events, and financial intelligence.
+    Use this to answer questions about recent market volatility, specific stock news, or economic indicators.
+    """
+    from tavily import TavilyClient
+    api_key = os.getenv("TAVILY_API_KEY")
+    if not api_key:
+        return "Error: TAVILY_API_KEY not found in environment variables."
+        
+    try:
+        client = TavilyClient(api_key=api_key)
+        # We use search_depth="basic" to keep latency low for the agent
+        response = client.search(query=query, search_depth="basic", max_results=3)
+        
+        res = "--- Web Search Results ---\n"
+        for r in response.get('results', []):
+            res += f"Title: {r['title']}\nURL: {r['url']}\nContent: {r['content']}\n\n"
+            
+        return res
+    except Exception as e:
+        return f"Tavily Search Error: {str(e)}"
+
 if __name__ == "__main__":
-    # Run the MCP server using the standard input/output transport
     print("Starting Aeon Wealth MCP Server...")
     mcp.run(transport="stdio")

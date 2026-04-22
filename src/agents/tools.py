@@ -58,5 +58,13 @@ def search_transcripts(semantic_query: str, n_results: int = 3) -> str:
     # Route strictly through the MCP Client
     return run_mcp_tool_sync("search_transcripts", {"semantic_query": semantic_query, "n_results": n_results})
 
-# The list of tools our Agent Factory can bind to the workers
-AEON_TOOLS = [execute_sql, search_transcripts]
+@tool
+def search_market_news(query: str) -> str:
+    """
+    Search the web for real-time market news, macroeconomic events, and financial intelligence.
+    Use this to answer questions about recent market volatility, specific stock news, or economic indicators.
+    """
+    return run_mcp_tool_sync("search_market_news", {"query": query})
+
+# Make sure to update the AEON_TOOLS list to include it!
+AEON_TOOLS = [execute_sql, search_transcripts, search_market_news]

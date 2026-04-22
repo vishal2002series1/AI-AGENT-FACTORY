@@ -31,7 +31,20 @@ class ClientDetails(Base):
     MaritalStatus = Column(String(50))
     Segment = Column(String(50))
     Age = Column(Integer)
-    RecentLifeEvent = Column(String(255)) # Captures "major life events" from requirements
+    # --- NEW EXCEL-MANDATED FIELDS ---
+    FinancialGoals = Column(Text)
+    UpcomingLifeEvents = Column(String(255))
+    ClientSentiment = Column(String(50)) # e.g., Positive, At Risk
+    AttritionRisk = Column(String(50))
+    ClientNPS = Column(Integer)
+    InvestorType = Column(String(100))
+    TaxSensitivity = Column(String(50))
+    Household = Column(String(100))
+    NextAppointment = Column(Date)
+    OccupationInfo = Column(String(255))
+    ClientTenure = Column(Float) # Years
+    Interests = Column(Text)
+    # ---------------------------------
     
     advisors = relationship("AdvisorClient", back_populates="client")
     meetings = relationship("UpcomingClientMeetings", back_populates="client")
@@ -58,7 +71,7 @@ class PortfolioData(Base):
     AssetName = Column(String(255))
     AssetClass = Column(String(100))
     MarketValue = Column(Float)
-    CostBasis = Column(Float) # Needed for "Concentrated low-basis position" workflow
+    CostBasis = Column(Float)
     
     client = relationship("ClientDetails", back_populates="portfolio")
 
@@ -66,8 +79,8 @@ class FinancialPlanningFacts(Base):
     __tablename__ = 'FinancialPlanningFacts'
     Id = Column(Integer, primary_key=True, autoincrement=True)
     ClientId = Column(Integer, ForeignKey('ClientDetails.Id'))
-    LastPlanUpdate = Column(Date) # Needed for "stale plan dates" workflow
-    EstatePlanDate = Column(Date) # Needed for "estate documents > 3 years old" workflow
+    LastPlanUpdate = Column(Date)
+    EstatePlanDate = Column(Date)
     HasRMD = Column(Boolean, default=False)
     
     client = relationship("ClientDetails", back_populates="planning_facts")
@@ -76,7 +89,7 @@ class ComplianceHub(Base):
     __tablename__ = 'ComplianceHub'
     Id = Column(Integer, primary_key=True, autoincrement=True)
     ClientId = Column(Integer, ForeignKey('ClientDetails.Id'))
-    FlagType = Column(String(100)) # e.g., "Missing Signature", "Stale IPS"
+    FlagType = Column(String(100))
     Description = Column(Text)
     IsResolved = Column(Boolean, default=False)
     
@@ -88,6 +101,7 @@ class UpcomingClientMeetings(Base):
     ClientId = Column(Integer, ForeignKey('ClientDetails.Id'))
     MeetingType = Column(String(100))
     MeetingDate = Column(Date)
+    AgendaDrafted = Column(Boolean, default=False)
     
     client = relationship("ClientDetails", back_populates="meetings")
 
@@ -99,3 +113,45 @@ class TranscriptSummary(Base):
     Summary = Column(Text)
     
     client = relationship("ClientDetails", back_populates="transcripts")
+
+# --- NEW TABLES FROM EXCEL GAP ANALYSIS ---
+
+class Email(Base):
+    __tablename__ = 'Email'
+    Id = Column(Integer, primary_key=True, autoincrement=True)
+    ClientId = Column(Integer, ForeignKey('ClientDetails.Id'))
+    DateSent = Column(Date)
+    Subject = Column(String(255))
+    Body = Column(Text)
+
+class EmailInsight(Base):
+    __tablename__ = 'EmailInsight'
+    Id = Column(Integer, primary_key=True, autoincrement=True)
+    EmailId = Column(Integer, ForeignKey('Email.Id'))
+    SentimentScore = Column(Float)
+    RequiresAction = Column(Boolean, default=False)
+    ExtractedThemes = Column(Text)
+
+class TranscriptInsights(Base):
+    __tablename__ = 'TranscriptInsights'
+    Id = Column(Integer, primary_key=True, autoincrement=True)
+    TranscriptId = Column(String(100), ForeignKey('TranscriptSummary.TranscriptId'))
+    OverallSentiment = Column(String(50))
+    ActionItems = Column(Text)
+    KeyLifeEventsMentioned = Column(Text)
+
+class NextBestAction(Base):
+    __tablename__ = 'NextBestAction'
+    Id = Column(Integer, primary_key=True, autoincrement=True)
+    ClientId = Column(Integer, ForeignKey('ClientDetails.Id'))
+    ActionCategory = Column(String(100)) # e.g., "Tax Harvesting", "Reach Out"
+    Recommendation = Column(Text)
+    ConfidenceScore = Column(Float)
+
+class MarketHighlights(Base):
+    __tablename__ = 'MarketHighlights'
+    Id = Column(Integer, primary_key=True, autoincrement=True)
+    Date = Column(Date)
+    AssetClass = Column(String(100))
+    HighlightText = Column(Text)
+    MarketImpact = Column(String(50)) # e.g., Bullish, Bearish
