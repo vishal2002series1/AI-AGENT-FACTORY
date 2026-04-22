@@ -2,6 +2,7 @@
 import os
 from dotenv import load_dotenv
 from langchain_aws import ChatBedrock
+from langchain_core.messages import HumanMessage  # <-- Added import
 from src.agents.tools import AEON_TOOLS
 from src.agents.config import AgentConfig
 from langgraph.prebuilt import create_react_agent
@@ -42,9 +43,6 @@ class AgentFactory:
 
         agent_tools = [self.tool_map[t_name] for t_name in config.authorized_tools if t_name in self.tool_map]
         
-        # 🛠️ THE FIX: Wrap the worker in a ReAct graph. 
-        # This gives the worker its own internal loop to execute tools automatically!
-        # 🛠️ THE FIX: Wrap the worker in a ReAct graph. 
         worker_agent = create_react_agent(
             model=llm,
             tools=agent_tools,
@@ -52,14 +50,22 @@ class AgentFactory:
         )
 
         def node_logic(state: dict):
-            # 1. Pass the current clipboard to the worker agent
-            result = worker_agent.invoke({"messages": state.get("messages", [])})
+            # 1. Grab the current conversation history
+            input_messages = list(state.get("messages", []))
             
-            # 2. Extract ONLY the newly generated messages (tool calls, tool results, and final answer)
-            existing_message_count = len(state.get("messages", []))
-            new_messages = result["messages"][existing_message_count:]
+            # 🛑 AWS BEDROCK FIX: Anthropic Claude strictly requires the conversation history 
+            # to end with a Human message. If the previous agent left an AI message, we inject a nudge.
+            if input_messages and getattr(input_messages[-1], "type", None) in ["ai", "tool"]:
+                nudge = f"Supervisor routing to {config.name}. Please execute your specific task based on the context above."
+                input_messages.append(HumanMessage(content=nudge))
             
-            # 3. Hand the updated clipboard back to the Supervisor
+            # 2. Pass the padded clipboard to the worker agent
+            result = worker_agent.invoke({"messages": input_messages})
+            
+            # 3. Extract ONLY the newly generated messages by slicing off the input history
+            new_messages = result["messages"][len(input_messages):]
+            
+            # 4. Hand the new messages back to the Supervisor
             return {"messages": new_messages, "current_agent": config.name}
 
         return node_logic
