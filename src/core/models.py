@@ -31,10 +31,9 @@ class ClientDetails(Base):
     MaritalStatus = Column(String(50))
     Segment = Column(String(50))
     Age = Column(Integer)
-    # --- NEW EXCEL-MANDATED FIELDS ---
     FinancialGoals = Column(Text)
     UpcomingLifeEvents = Column(String(255))
-    ClientSentiment = Column(String(50)) # e.g., Positive, At Risk
+    ClientSentiment = Column(String(50)) 
     AttritionRisk = Column(String(50))
     ClientNPS = Column(Integer)
     InvestorType = Column(String(100))
@@ -42,9 +41,8 @@ class ClientDetails(Base):
     Household = Column(String(100))
     NextAppointment = Column(Date)
     OccupationInfo = Column(String(255))
-    ClientTenure = Column(Float) # Years
+    ClientTenure = Column(Float) 
     Interests = Column(Text)
-    # ---------------------------------
     
     advisors = relationship("AdvisorClient", back_populates="client")
     meetings = relationship("UpcomingClientMeetings", back_populates="client")
@@ -89,7 +87,7 @@ class ComplianceHub(Base):
     __tablename__ = 'ComplianceHub'
     Id = Column(Integer, primary_key=True, autoincrement=True)
     ClientId = Column(Integer, ForeignKey('ClientDetails.Id'))
-    FlagType = Column(String(100))
+    FlagType = Column(String(100)) 
     Description = Column(Text)
     IsResolved = Column(Boolean, default=False)
     
@@ -110,11 +108,10 @@ class TranscriptSummary(Base):
     Id = Column(Integer, primary_key=True, autoincrement=True)
     ClientId = Column(Integer, ForeignKey('ClientDetails.Id'))
     TranscriptId = Column(String(100), unique=True)
+    InteractionDate = Column(Date) # ADDED: Gap #9 "Time since last contact" signal
     Summary = Column(Text)
     
     client = relationship("ClientDetails", back_populates="transcripts")
-
-# --- NEW TABLES FROM EXCEL GAP ANALYSIS ---
 
 class Email(Base):
     __tablename__ = 'Email'
@@ -124,13 +121,25 @@ class Email(Base):
     Subject = Column(String(255))
     Body = Column(Text)
 
+class EmailReply(Base): # ADDED: Gap #16 Un-merged from Email
+    __tablename__ = 'EmailReply'
+    Id = Column(Integer, primary_key=True, autoincrement=True)
+    EmailId = Column(Integer, ForeignKey('Email.Id'))
+    DateSent = Column(Date)
+    Body = Column(Text)
+    FromAdvisor = Column(Boolean, default=True)
+
 class EmailInsight(Base):
     __tablename__ = 'EmailInsight'
     Id = Column(Integer, primary_key=True, autoincrement=True)
     EmailId = Column(Integer, ForeignKey('Email.Id'))
-    SentimentScore = Column(Float)
+    ClientId = Column(Integer, ForeignKey('ClientDetails.Id')) # ADDED: Gap #8 Denormalized for fast aggregation
+    Sentiment = Column(String(50)) # FIXED: Gap #2 String categorical per Excel 
     RequiresAction = Column(Boolean, default=False)
     ExtractedThemes = Column(Text)
+    Participants = Column(String(255)) # ADDED: Gap #2 Inventory requirement
+    ProductsMentioned = Column(String(255)) # ADDED: Gap #2 Inventory requirement
+    Summary = Column(Text) # ADDED: Gap #2 Inventory requirement
 
 class TranscriptInsights(Base):
     __tablename__ = 'TranscriptInsights'
@@ -144,7 +153,7 @@ class NextBestAction(Base):
     __tablename__ = 'NextBestAction'
     Id = Column(Integer, primary_key=True, autoincrement=True)
     ClientId = Column(Integer, ForeignKey('ClientDetails.Id'))
-    ActionCategory = Column(String(100)) # e.g., "Tax Harvesting", "Reach Out"
+    ActionCategory = Column(String(100)) 
     Recommendation = Column(Text)
     ConfidenceScore = Column(Float)
 
@@ -154,4 +163,13 @@ class MarketHighlights(Base):
     Date = Column(Date)
     AssetClass = Column(String(100))
     HighlightText = Column(Text)
-    MarketImpact = Column(String(50)) # e.g., Bullish, Bearish
+    MarketImpact = Column(String(50))
+
+class PolicyBenchmark(Base): # ADDED: Gap #4 For Performance Benchmark Agent
+    __tablename__ = 'PolicyBenchmark'
+    Id = Column(Integer, primary_key=True, autoincrement=True)
+    BenchmarkName = Column(String(100)) 
+    AssetClass = Column(String(100))
+    ReturnYTD = Column(Float)
+    Return1Y = Column(Float)
+    Return3Y = Column(Float)

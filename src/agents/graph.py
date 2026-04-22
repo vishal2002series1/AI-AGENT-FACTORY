@@ -37,24 +37,25 @@ def build_aeon_graph():
     factory = AgentFactory()
     
     supervisor_llm = ChatBedrock(
-        model_id="us.anthropic.claude-sonnet-4-6", # Reverted to your specified Bedrock ID
+        model_id="us.anthropic.claude-sonnet-4-6", 
         region_name="us-east-1",
         temperature=0.0
     ).with_structured_output(RouteDecision)
 
     def supervisor_node(state: AgentState):
         # 🛡️ THE CIRCUIT BREAKER
-        if len(state.get("routing_log", [])) > 8: # Increased slightly for multi-agent workflows
+        if len(state.get("routing_log", [])) > 8: 
             return {
                 "messages": [AIMessage(content="Circuit Breaker Activated: Maximum reasoning steps reached.")],
                 "current_agent": "supervisor",
                 "routing_log": ["Routed to FINISH because: Circuit breaker triggered"]
             }
             
-        # 🧠 DYNAMIC INTENT CATALOG
-        # We dynamically build the catalog from the config so the Supervisor knows exactly what tools each agent has
+        # 🧠 DYNAMIC INTENT CATALOG (OPTIMIZED)
+        # 🛠️ FIX FOR GAP #6: We now use the short `routing_description` instead of the full `persona`
+        # This drastically reduces token usage and prevents context window overflow!
         agent_descriptions = "\n".join(
-            [f"- {name}: {config.persona} (Tools available: {', '.join(config.authorized_tools)})" 
+            [f"- {name}: {config.routing_description} (Tools available: {', '.join(config.authorized_tools)})" 
              for name, config in AEON_AGENT_REGISTRY.items()]
         )
             

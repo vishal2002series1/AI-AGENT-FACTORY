@@ -5,18 +5,15 @@ import chromadb
 from mcp.server.fastmcp import FastMCP
 from dotenv import load_dotenv
 
-# Load environment variables (critical for Tavily)
+# Load environment variables
 load_dotenv()
 
-# Initialize the MCP Server
 mcp = FastMCP("AeonWealthMCP")
 
-# Path resolution for local data
 LOCAL_DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data_local'))
 SQLITE_DB_PATH = os.path.join(LOCAL_DATA_DIR, 'aeon_mvp.db')
 CHROMA_DB_PATH = os.path.join(LOCAL_DATA_DIR, 'chroma_db')
 
-# Initialize Vector DB connection
 chroma_client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
 try:
     vector_collection = chroma_client.get_collection(name="advisor_notes")
@@ -28,9 +25,9 @@ except Exception as e:
 def execute_sql(query: str) -> str:
     """
     Execute a read-only SQL query against the Aeon Wealth relational database.
-    Use this to fetch deterministic client facts, portfolio data, meetings, and compliance flags.
     Tables available: ClientDetails, AdvisorDetails, AdvisorPerformance, AdvisorClient, 
-    PortfolioData, FinancialPlanningFacts, ComplianceHub, UpcomingClientMeetings, TranscriptSummary.
+    PortfolioData, FinancialPlanningFacts, ComplianceHub, UpcomingClientMeetings, TranscriptSummary,
+    Email, EmailReply, EmailInsight, TranscriptInsights, NextBestAction, MarketHighlights, PolicyBenchmark.
     """
     try:
         if query.strip().upper().startswith(("INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE")):
@@ -55,6 +52,70 @@ def execute_sql(query: str) -> str:
         return res
     except Exception as e:
         return f"SQL Error: {str(e)}"
+
+@mcp.tool()
+def compute_portfolio_concentration(client_id: int) -> str:
+    """
+    Deterministic Compute: Calculates portfolio concentration metrics for a specific client.
+    Returns top position percentage, Herfindahl-Hirschman Index (HHI), sector concentration, 
+    and flags any concentrated low-basis positions to avoid LLM math hallucinations.
+    """
+    try:
+        conn = sqlite3.connect(SQLITE_DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT Ticker, AssetClass, MarketValue, CostBasis FROM PortfolioData WHERE ClientId = ?", 
+            (client_id,)
+        )
+        rows = cursor.fetchall()
+        conn.close()
+
+        if not rows:
+            return f"No portfolio data found for ClientId {client_id}."
+
+        total_market_value = sum(row[2] for row in rows)
+        if total_market_value == 0:
+            return "Total market value is zero."
+
+        positions = []
+        hhi = 0.0
+        asset_class_totals = {}
+        low_basis_flags = []
+
+        for ticker, asset_class, mkt_val, cost_basis in rows:
+            weight = mkt_val / total_market_value
+            hhi += (weight * 100) ** 2  # Standard HHI uses whole percentages squared
+            
+            asset_class_totals[asset_class] = asset_class_totals.get(asset_class, 0) + mkt_val
+            
+            # Check for low basis (e.g., basis is less than 20% of market value)
+            if cost_basis is not None and mkt_val > 0 and (cost_basis / mkt_val) <= 0.2:
+                low_basis_flags.append(f"{ticker} (Basis: ${cost_basis:,.2f} / Mkt: ${mkt_val:,.2f})")
+            
+            positions.append({"ticker": ticker, "weight": weight, "mkt_val": mkt_val})
+
+        positions.sort(key=lambda x: x["weight"], reverse=True)
+        top_position = positions[0]
+
+        res = f"--- Deterministic Portfolio Analytics for ClientId {client_id} ---\n"
+        res += f"Total Market Value: ${total_market_value:,.2f}\n"
+        res += f"Top Position: {top_position['ticker']} at {top_position['weight']*100:.1f}%\n"
+        res += f"Herfindahl-Hirschman Index (HHI): {hhi:.1f} (Highly concentrated if > 2500)\n\n"
+        
+        res += "Asset Class Exposures:\n"
+        for ac, val in asset_class_totals.items():
+            res += f"- {ac}: {(val/total_market_value)*100:.1f}%\n"
+
+        if low_basis_flags:
+            res += "\n⚠️ Concentrated Low-Basis Positions Detected:\n"
+            for flag in low_basis_flags:
+                res += f"- {flag}\n"
+        else:
+            res += "\nNo significant low-basis concentration detected.\n"
+
+        return res
+    except Exception as e:
+        return f"Compute Error: {str(e)}"
 
 @mcp.tool()
 def search_transcripts(semantic_query: str, n_results: int = 3) -> str:
@@ -96,7 +157,6 @@ def search_market_news(query: str) -> str:
         
     try:
         client = TavilyClient(api_key=api_key)
-        # We use search_depth="basic" to keep latency low for the agent
         response = client.search(query=query, search_depth="basic", max_results=3)
         
         res = "--- Web Search Results ---\n"
