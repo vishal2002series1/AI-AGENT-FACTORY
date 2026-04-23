@@ -4,6 +4,7 @@ import sqlite3
 import chromadb
 from mcp.server.fastmcp import FastMCP
 from dotenv import load_dotenv
+import sys
 
 # Load environment variables
 load_dotenv()
@@ -37,6 +38,9 @@ def execute_sql(query: str) -> str:
         if query.strip().upper().startswith(("INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE")):
             return "Error: Only SELECT queries are allowed."
 
+        # 🛑 FIX: Print to sys.stderr so it shows up in your terminal!
+        print(f"\n      🟦 [MCP SQL Executing]:\n{query}\n", file=sys.stderr)
+
         conn = sqlite3.connect(SQLITE_DB_PATH)
         cursor = conn.cursor()
         cursor.execute(query)
@@ -47,7 +51,7 @@ def execute_sql(query: str) -> str:
         
         if not rows:
             return "No results found."
-        
+            
         res = " | ".join(columns) + "\n"
         res += "-" * len(res) + "\n"
         for row in rows:
@@ -55,6 +59,8 @@ def execute_sql(query: str) -> str:
             
         return res
     except Exception as e:
+        # Print errors to the terminal too so you can see if the LLM messed up!
+        print(f"\n      ❌ [MCP SQL ERROR]: {str(e)}\n")
         return f"SQL Error: {str(e)}"
 
 @mcp.tool()
