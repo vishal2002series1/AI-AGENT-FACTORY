@@ -38,6 +38,7 @@ class AgentFactory:
         llm = ChatBedrock(
             model_id=config.model_id,
             region_name="us-east-1",
+            max_tokens=4096,
             model_kwargs={"temperature": config.temperature}
         )
 

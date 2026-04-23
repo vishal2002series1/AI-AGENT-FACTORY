@@ -68,7 +68,8 @@ def build_aeon_graph():
         CRITICAL RULES:
         1. Classify Intent: Look at the user's request and match it to the agent with the right tools.
         2. Ambiguity: If the query is ambiguous (e.g., asking for a first name with multiple matches), route to 'ASK_HUMAN'.
-        3. Completion: If all required data has been gathered and the request is fully resolved, compile a final summary and route to 'FINISH'."""
+        3. Completion: If all required data has been gathered and the request is fully resolved, compile a final summary and route to 'FINISH'.
+        CRITICAL: Once the required information has been gathered and a synthesis agent has provided the final summary or report, you MUST route to FINISH. Do NOT route a query back to an agent that has already completed its task."""
         
         messages = [SystemMessage(content=system_prompt)] + list(state["messages"])
         

@@ -12,3 +12,4 @@ langgraph-checkpoint-sqlite
 arize
 arize-otel
 openinference-instrumentation-langchain
+tavily-python
