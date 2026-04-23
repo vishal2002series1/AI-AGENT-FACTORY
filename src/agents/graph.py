@@ -2,7 +2,7 @@
 import operator
 import sqlite3
 import os
-from typing import Annotated, Sequence, TypedDict, Literal
+from typing import Annotated, Sequence, TypedDict, Literal, List
 from pydantic import BaseModel, Field
 
 from langgraph.graph import StateGraph, START, END
@@ -18,7 +18,7 @@ from src.agents.factory import AgentFactory
 # --- 1. The Universal State ---
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
-    current_agent: str
+    current_agent: Annotated[list[str], operator.add]
     routing_log: Annotated[list[str], operator.add]
 
 # --- 2. The Supervisor's Brain (Intent Router) ---
@@ -26,9 +26,9 @@ agent_names = list(AEON_AGENT_REGISTRY.keys())
 route_options = agent_names + ["ASK_HUMAN", "FINISH"]
 
 class RouteDecision(BaseModel):
-    next_node: Literal[tuple(route_options)] = Field(
+    next_nodes: List[str] = Field(
         ...,
-        description="The precise agent to route to based on intent. Use 'ASK_HUMAN' if ambiguous. Use 'FINISH' if fully answered."
+        description="A list of precise agents to route to based on intent. If tasks can be done simultaneously, list multiple agents. Use ['ASK_HUMAN'] if ambiguous. Use ['FINISH'] if fully answered."
     )
     reasoning: str = Field(..., description="Explanation of why this route aligns with the advisor's intent.")
 
@@ -47,13 +47,11 @@ def build_aeon_graph():
         if len(state.get("routing_log", [])) > 8: 
             return {
                 "messages": [AIMessage(content="Circuit Breaker Activated: Maximum reasoning steps reached.")],
-                "current_agent": "supervisor",
+                "current_agent": ["supervisor"],
                 "routing_log": ["Routed to FINISH because: Circuit breaker triggered"]
             }
             
         # 🧠 DYNAMIC INTENT CATALOG (OPTIMIZED)
-        # 🛠️ FIX FOR GAP #6: We now use the short `routing_description` instead of the full `persona`
-        # This drastically reduces token usage and prevents context window overflow!
         agent_descriptions = "\n".join(
             [f"- {name}: {config.routing_description} (Tools available: {', '.join(config.authorized_tools)})" 
              for name, config in AEON_AGENT_REGISTRY.items()]
@@ -66,23 +64,25 @@ def build_aeon_graph():
         {agent_descriptions}
         
         CRITICAL RULES:
-        1. Classify Intent: Look at the user's request and match it to the agent with the right tools.
-        2. Ambiguity: If the query is ambiguous (e.g., asking for a first name with multiple matches), route to 'ASK_HUMAN'.
-        3. Completion: If all required data has been gathered and the request is fully resolved, compile a final summary and route to 'FINISH'.
-        CRITICAL: Once the required information has been gathered and a synthesis agent has provided the final summary or report, you MUST route to FINISH. Do NOT route a query back to an agent that has already completed its task."""
+        1. Classify Intent: Match the user's request to the agent(s) with the right tools.
+        2. PARALLEL EXECUTION: If a request requires data from multiple independent sources (e.g., getting SQL portfolio data AND searching the web for news), you MUST route to multiple agents simultaneously by including them all in your list.
+        3. Ambiguity: If the query is ambiguous (e.g., asking for a first name with multiple matches), route to 'ASK_HUMAN'.
+        4. Completion & Synthesis: If you just ran agents in parallel, you CANNOT route to FINISH. You must route to the `synthesis_agent` to merge their data first. ONLY route to 'FINISH' after the synthesis_agent has generated the final report, or if a simple single-agent task is fully resolved.
+        CRITICAL: Do NOT route a query back to an agent that has already completed its task."""
         
         messages = [SystemMessage(content=system_prompt)] + list(state["messages"])
         
         # 🛑 BEDROCK FIX: The conversation history cannot end with an AI message.
         if messages and getattr(messages[-1], "type", None) == "ai":
-            nudge = "Review the agent's output above. If the advisor's request is fully resolved, route to FINISH. If more data is needed, route to the next appropriate agent."
+            nudge = "Review the agent's output above. If the advisor's request is fully resolved, route to FINISH. If more data is needed, route to the next appropriate agent(s)."
             messages.append(HumanMessage(content=nudge))
         
         decision = supervisor_llm.invoke(messages)
+        nodes_str = ",".join(decision.next_nodes)
         
         return {
-            "current_agent": "supervisor",
-            "routing_log": [f"Routed to {decision.next_node} because: {decision.reasoning}"]
+            "current_agent": ["supervisor"],
+            "routing_log": [f"Routed to {nodes_str} because: {decision.reasoning}"]
         }
 
     # 🛑 THE HUMAN-IN-THE-LOOP NODE
@@ -91,7 +91,7 @@ def build_aeon_graph():
         human_response = interrupt(f"Clarification needed: {question_to_ask}")
         return {
             "messages": [HumanMessage(content=f"[Advisor Clarification]: {human_response}")],
-            "current_agent": "human"
+            "current_agent": ["human"]
         }
 
     # Initialize Graph
@@ -99,7 +99,7 @@ def build_aeon_graph():
     workflow.add_node("supervisor", supervisor_node)
     workflow.add_node("ASK_HUMAN", human_clarification_node)
     
-    # Dynamically load all 10 Factory Agents
+    # Dynamically load all Factory Agents
     for agent_name, config in AEON_AGENT_REGISTRY.items():
         worker_node = factory.build_node(config)
         workflow.add_node(agent_name, worker_node)
@@ -107,12 +107,24 @@ def build_aeon_graph():
         
     workflow.add_edge("ASK_HUMAN", "supervisor")
 
-    def route_from_supervisor(state: AgentState) -> str:
+    def route_from_supervisor(state: AgentState) -> List[str]:
         last_log = state.get("routing_log", [""])[-1]
-        for name in route_options:
-            if f"Routed to {name}" in last_log:
-                return name
-        return "FINISH"
+        
+        # If the circuit breaker hit or it explicitly routed to FINISH
+        if "Routed to FINISH" in last_log:
+            return ["FINISH"]
+            
+        # Parse the 'Routed to agent1,agent2 because...' string
+        try:
+            nodes_str = last_log.split("Routed to ")[1].split(" because:")[0]
+            active_nodes = [node.strip() for node in nodes_str.split(",") if node.strip() in route_options]
+            
+            if active_nodes:
+                return active_nodes
+        except IndexError:
+            pass
+            
+        return ["FINISH"]
 
     edge_mapping = {name: name for name in route_options if name != "FINISH"}
     edge_mapping["FINISH"] = END 

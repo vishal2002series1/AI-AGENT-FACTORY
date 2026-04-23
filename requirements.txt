@@ -13,3 +13,5 @@ arize
 arize-otel
 openinference-instrumentation-langchain
 tavily-python
+pandas
+openpyxl

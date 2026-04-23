@@ -26,11 +26,10 @@ class AgentFabricator:
         self.llm = ChatBedrock(
             model_id=model_id,
             region_name="us-east-1",
-            temperature=0.2, # Slight creativity to write excellent system prompts
-            max_tokens=4096  # Increased to prevent truncation when generating multiple agents
+            temperature=0.2, 
+            max_tokens=4096  
         ).with_structured_output(FabricatorOutput)
         
-        # The dynamic library of available tools in your factory
         self.available_tools = [
             "execute_sql", 
             "compute_portfolio_concentration", 
@@ -48,6 +47,7 @@ RULES FOR CREATION:
 1. GRANULARITY: If the query requires multiple distinct capabilities (e.g., querying databases AND searching the web), DO NOT build one agent to do both. You must return multiple Agent Blueprints, each representing a single, atomic skill.
 2. TOOL BINDING: Assign a maximum of 1 or 2 highly related tools per agent to ensure they remain specialized.
 3. ANTI-HALLUCINATION: The `persona` prompt MUST explicitly instruct the agent to cite its tool logs and NEVER guess financial data, tax rules, or client facts.
+4. DEFENSIVE EXECUTION: Every persona MUST explicitly instruct the agent to verify entities first. If an entity (like a client name) is missing, empty, or a fuzzy mismatch, the agent MUST immediately stop and output 'AMBIGUOUS_ENTITY: ASK_HUMAN'. Do NOT attempt to adapt or proceed.
 
 You will receive a Test Query and optionally, Feedback from a Critic if a previous version of this agent hallucinated or failed.
 """

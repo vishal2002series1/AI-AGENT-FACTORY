@@ -36,9 +36,11 @@ def execute_sql(query: str) -> str:
     """
     Execute a read-only SQL query against the Aeon Wealth relational database.
     Use this to fetch deterministic client facts, portfolio data, meetings, and compliance flags.
-    Tables available: ClientDetails, AdvisorDetails, AdvisorPerformance, AdvisorClient, 
-    PortfolioData, FinancialPlanningFacts, ComplianceHub, UpcomingClientMeetings, TranscriptSummary,
-    Email, EmailReply, EmailInsight, TranscriptInsights, NextBestAction, MarketHighlights, PolicyBenchmark.
+    Tables available: AIGroupInsight, AdvisorClients, AdvisorCoaching, AdvisorDetails, 
+    AdvisorPerformance, ClientDetails, CollaborationHub, ComplianceHub, Email, EmailInsight, 
+    EmailReply, MarketHighlights, NextBestAction, NextBestActionLandingPag, OpenOpportunities, 
+    PortfolioData, PortfolioSimulator, SmartInsights, SocialListening, Transcript, 
+    TranscriptInsights, TranscriptSummary, UpcomingClientMeetings, chat_memory.
     """
     return run_mcp_tool_sync("execute_sql", {"query": query})
 
@@ -68,5 +70,20 @@ def search_market_news(query: str) -> str:
     """
     return run_mcp_tool_sync("search_market_news", {"query": query})
 
-# The complete roster of tools available to the Agent Factory
-AEON_TOOLS = [execute_sql, compute_portfolio_concentration, search_transcripts, search_market_news]
+@tool
+def get_database_schema(table_names: list[str] = None) -> str:
+    """
+    Returns the exact CREATE TABLE schemas for the requested tables.
+    ALWAYS use this tool before writing SQL queries using execute_sql to ensure you use the exact correct column names.
+    """
+    args = {"table_names": table_names} if table_names else {}
+    return run_mcp_tool_sync("get_database_schema", args)
+
+# Make sure to add it to the final roster!
+AEON_TOOLS = [
+    execute_sql, 
+    compute_portfolio_concentration, 
+    search_transcripts, 
+    search_market_news, 
+    get_database_schema   # <--- Added here
+]

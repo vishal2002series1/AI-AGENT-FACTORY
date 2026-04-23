@@ -11,7 +11,8 @@ load_dotenv()
 mcp = FastMCP("AeonWealthMCP")
 
 LOCAL_DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data_local'))
-SQLITE_DB_PATH = os.path.join(LOCAL_DATA_DIR, 'aeon_mvp.db')
+# 🛑 FIX: Point to the newly ingested Excel database
+SQLITE_DB_PATH = os.path.join(LOCAL_DATA_DIR, 'aeon_db.sqlite') 
 CHROMA_DB_PATH = os.path.join(LOCAL_DATA_DIR, 'chroma_db')
 
 chroma_client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
@@ -25,9 +26,12 @@ except Exception as e:
 def execute_sql(query: str) -> str:
     """
     Execute a read-only SQL query against the Aeon Wealth relational database.
-    Tables available: ClientDetails, AdvisorDetails, AdvisorPerformance, AdvisorClient, 
-    PortfolioData, FinancialPlanningFacts, ComplianceHub, UpcomingClientMeetings, TranscriptSummary,
-    Email, EmailReply, EmailInsight, TranscriptInsights, NextBestAction, MarketHighlights, PolicyBenchmark.
+    Tables available from the latest ingestion: 
+    AIGroupInsight, AdvisorClients, AdvisorCoaching, AdvisorDetails, AdvisorPerformance, 
+    ClientDetails, CollaborationHub, ComplianceHub, Email, EmailInsight, EmailReply, 
+    MarketHighlights, NextBestAction, NextBestActionLandingPag, OpenOpportunities, 
+    PortfolioData, PortfolioSimulator, SmartInsights, SocialListening, Transcript, 
+    TranscriptInsights, TranscriptSummary, UpcomingClientMeetings, chat_memory.
     """
     try:
         if query.strip().upper().startswith(("INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE")):
@@ -52,6 +56,39 @@ def execute_sql(query: str) -> str:
         return res
     except Exception as e:
         return f"SQL Error: {str(e)}"
+
+@mcp.tool()
+def get_database_schema(table_names: list[str] = None) -> str:
+    """
+    Returns the exact CREATE TABLE schemas for the requested tables.
+    Use this to understand the exact column names and data types before writing SQL.
+    """
+    try:
+        conn = sqlite3.connect(SQLITE_DB_PATH)
+        cursor = conn.cursor()
+        
+        if table_names and len(table_names) > 0:
+            placeholders = ','.join(['?'] * len(table_names))
+            cursor.execute(f"SELECT sql FROM sqlite_master WHERE type='table' AND name IN ({placeholders})", tuple(table_names))
+        else:
+            cursor.execute("SELECT name, sql FROM sqlite_master WHERE type='table'")
+            
+        rows = cursor.fetchall()
+        conn.close()
+        
+        if not rows:
+            return "No schema found for the requested tables."
+            
+        res = "--- Database Schema ---\n"
+        for row in rows:
+            # Depending on the query, the sql string is either at index 0 or 1
+            sql_str = row[1] if len(row) > 1 else row[0]
+            if sql_str:
+                res += sql_str + ";\n\n"
+                
+        return res
+    except Exception as e:
+        return f"Schema Error: {str(e)}"
 
 @mcp.tool()
 def compute_portfolio_concentration(client_id: int) -> str:

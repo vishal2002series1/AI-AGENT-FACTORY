@@ -1,0 +1,28 @@
+{
+  "workflow_id": "WF_001",
+  "workflow_name": "Client Review & Prep",
+  "description": "Prepares an advisor for upcoming meetings by identifying recent life events, stale financial documents, and missing tasks across the client book.",
+  "required_data_sources": [
+    "ClientDetails",
+    "FinancialPlanningFacts",
+    "UpcomingClientMeetings",
+    "TranscriptInsights"
+  ],
+  "target_questions": [
+    {
+      "id": "Q1",
+      "intent": "Identify clients with unaddressed life events",
+      "prompt": "Which clients have had a major life event recently but no updated financial plan or scheduled review meeting?"
+    },
+    {
+      "id": "Q2",
+      "intent": "Identify aging estate plans for wealthy older clients",
+      "prompt": "Which clients over 50 have estate planning documents that are more than 3 years old and have had significant balance growth or life changes since then?"
+    }
+  ],
+  "governance_rules": {
+    "strict_mode": true,
+    "allow_hallucination": false,
+    "require_human_on_ambiguity": true
+  }
+}

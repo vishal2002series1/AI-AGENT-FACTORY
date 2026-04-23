@@ -14,7 +14,8 @@ app = build_aeon_graph()
 
 # A slightly varied query to prove the Supervisor understands intent
 query = "Analyze the tax implications and concentration risk if Emily Chen liquidates her NVDA position."
-
+query = "I have an annual review with the Smith family tomorrow. Please draft a meeting agenda, summarize their recent communication sentiment, and compare their portfolio performance against the firm benchmark."
+query = "Which clients have had a major life event recently but no updated financial plan or scheduled review meeting?"
 print(f"\n🗣️ USER QUERY: {query}\n")
 print("🔄 ORCHESTRATOR ROUTING JOURNEY:")
 

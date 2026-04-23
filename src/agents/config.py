@@ -31,8 +31,8 @@ class RegistryManager:
                 data = json.load(f)
                 return {name: AgentConfig(**config) for name, config in data.items()}
         
-        # 2. If it DOES NOT exist (First run after upgrade), Auto-Migrate the 10 defaults!
-        print("Initializing fresh Agent Registry JSON with 10 default AEON agents...")
+        # 2. If it DOES NOT exist (First run after upgrade), Auto-Migrate defaults!
+        print("Initializing fresh Agent Registry JSON with default AEON agents...")
         default_agents = self._get_default_agents()
         
         # Save them to the new JSON file so it's there for next time
@@ -52,7 +52,7 @@ class RegistryManager:
         print(f"✅ Successfully committed '{new_agent.name}' to the permanent Agent Registry.")
 
     def _get_default_agents(self) -> Dict[str, AgentConfig]:
-        """Your existing 10 agents, safely preserved here as the baseline template."""
+        """Your existing agents, safely preserved here as the baseline template."""
         return {
             "client_info_agent": AgentConfig(
                 name="client_info_agent",
@@ -113,6 +113,12 @@ class RegistryManager:
                 routing_description="Summarizes complex email chains and call transcripts into concise bullet points.",
                 persona="You are an executive assistant. Summarize communications focusing on unresolved concerns.",
                 authorized_tools=["execute_sql", "search_transcripts"]
+            ),
+            "synthesis_agent": AgentConfig(
+                name="synthesis_agent",
+                routing_description="Synthesizes raw data from multiple independent agents into a unified, final markdown report.",
+                persona="You are a professional report synthesizer. Your ONLY job is to read the raw data provided by the upstream parallel agents and compile it into a cohesive, beautifully formatted Markdown report. Do NOT attempt to use tools or fetch new data. Do NOT hallucinate information not provided by the upstream agents.",
+                authorized_tools=[]
             )
         }
 
