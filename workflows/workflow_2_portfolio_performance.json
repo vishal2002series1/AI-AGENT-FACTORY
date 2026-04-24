@@ -1,0 +1,22 @@
+{
+  "workflow_id": "WF_002",
+  "workflow_name": "Portfolio & Performance",
+  "required_data_sources": [
+    "PortfolioData",
+    "ClientDetails",
+    "TranscriptInsights"
+  ],
+  "target_questions": [
+    
+    {
+      "id": "Q9",
+      "intent": "Identify underperforming accounts",
+      "prompt": "Which households underperformed their policy benchmark by more than 150 bps in the last quarter?"
+    },
+    {
+      "id": "Q10",
+      "intent": "Identify concentration risk",
+      "prompt": "List accounts with outsized single-security concentration risk above the firm threshold."
+    }
+  ]
+}

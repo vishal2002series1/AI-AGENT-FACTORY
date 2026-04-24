@@ -1,0 +1,117 @@
+{
+  "workflow_id": "WF_001",
+  "agents": [
+    "nba_agent",
+    "sentiment_agent",
+    "life_event_detector_agent",
+    "client_info_agent",
+    "interaction_summarizer_agent",
+    "portfolio_analytics_agent",
+    "meeting_prep_agent",
+    "financial_plan_review_checker_agent",
+    "financial_planning_agent",
+    "compliance_agent"
+  ],
+  "edges": [
+    {
+      "source": "START",
+      "target": "meeting_prep_agent"
+    },
+    {
+      "source": "START",
+      "target": "financial_planning_agent"
+    },
+    {
+      "source": "START",
+      "target": "client_info_agent"
+    },
+    {
+      "source": "START",
+      "target": "portfolio_analytics_agent"
+    },
+    {
+      "source": "financial_planning_agent",
+      "target": "client_info_agent"
+    },
+    {
+      "source": "financial_plan_review_checker_agent",
+      "target": "synthesis_agent"
+    },
+    {
+      "source": "life_event_detector_agent",
+      "target": "client_info_agent"
+    },
+    {
+      "source": "financial_planning_agent",
+      "target": "nba_agent"
+    },
+    {
+      "source": "START",
+      "target": "compliance_agent"
+    },
+    {
+      "source": "portfolio_analytics_agent",
+      "target": "nba_agent"
+    },
+    {
+      "source": "client_info_agent",
+      "target": "nba_agent"
+    },
+    {
+      "source": "START",
+      "target": "life_event_detector_agent"
+    },
+    {
+      "source": "compliance_agent",
+      "target": "nba_agent"
+    },
+    {
+      "source": "START",
+      "target": "interaction_summarizer_agent"
+    },
+    {
+      "source": "synthesis_agent",
+      "target": "END"
+    },
+    {
+      "source": "START",
+      "target": "sentiment_agent"
+    },
+    {
+      "source": "sentiment_agent",
+      "target": "nba_agent"
+    },
+    {
+      "source": "interaction_summarizer_agent",
+      "target": "END"
+    },
+    {
+      "source": "meeting_prep_agent",
+      "target": "synthesis_agent"
+    },
+    {
+      "source": "life_event_detector_agent",
+      "target": "synthesis_agent"
+    },
+    {
+      "source": "client_info_agent",
+      "target": "END"
+    },
+    {
+      "source": "compliance_agent",
+      "target": "synthesis_agent"
+    },
+    {
+      "source": "START",
+      "target": "financial_plan_review_checker_agent"
+    },
+    {
+      "source": "compliance_agent",
+      "target": "END"
+    },
+    {
+      "source": "nba_agent",
+      "target": "END"
+    }
+  ]
+}

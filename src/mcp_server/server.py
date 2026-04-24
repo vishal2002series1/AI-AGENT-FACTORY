@@ -1,45 +1,49 @@
 # src/mcp_server/server.py
 import os
+import sys
 import sqlite3
 import chromadb
 from mcp.server.fastmcp import FastMCP
 from dotenv import load_dotenv
-import sys
 
-# Load environment variables
 load_dotenv()
-
 mcp = FastMCP("AeonWealthMCP")
 
 LOCAL_DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data_local'))
-# 🛑 FIX: Point to the newly ingested Excel database
 SQLITE_DB_PATH = os.path.join(LOCAL_DATA_DIR, 'aeon_db.sqlite') 
 CHROMA_DB_PATH = os.path.join(LOCAL_DATA_DIR, 'chroma_db')
 
-chroma_client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
-try:
-    vector_collection = chroma_client.get_collection(name="advisor_notes")
-except Exception as e:
-    print(f"Warning: Could not load ChromaDB collection: {e}")
-    vector_collection = None
+# ⚡ GLOBAL CACHE STATE
+QUERY_CACHE = {}
+SCHEMA_CACHE = {}
+LAST_DB_MTIME = 0
+
+def check_cache_invalidation():
+    """Checks file metadata. Wipes cache if DB has been updated."""
+    global LAST_DB_MTIME, QUERY_CACHE, SCHEMA_CACHE
+    try:
+        current_mtime = os.path.getmtime(SQLITE_DB_PATH)
+        if current_mtime != LAST_DB_MTIME:
+            QUERY_CACHE.clear()
+            SCHEMA_CACHE.clear()
+            LAST_DB_MTIME = current_mtime
+    except OSError:
+        pass
 
 @mcp.tool()
 def execute_sql(query: str) -> str:
-    """
-    Execute a read-only SQL query against the Aeon Wealth relational database.
-    Tables available from the latest ingestion: 
-    AIGroupInsight, AdvisorClients, AdvisorCoaching, AdvisorDetails, AdvisorPerformance, 
-    ClientDetails, CollaborationHub, ComplianceHub, Email, EmailInsight, EmailReply, 
-    MarketHighlights, NextBestAction, NextBestActionLandingPag, OpenOpportunities, 
-    PortfolioData, PortfolioSimulator, SmartInsights, SocialListening, Transcript, 
-    TranscriptInsights, TranscriptSummary, UpcomingClientMeetings, chat_memory.
-    """
+    """Execute a read-only SQL query against the Aeon Wealth database."""
+    global QUERY_CACHE
+    check_cache_invalidation()
+
+    if query in QUERY_CACHE:
+        print(f"\n      ⚡ [CACHE HIT - Instant Return]:\n{query}\n", file=sys.stderr)
+        return QUERY_CACHE[query]
+
+    print(f"\n      🟦 [MCP SQL Executing]:\n{query}\n", file=sys.stderr)
     try:
         if query.strip().upper().startswith(("INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE")):
             return "Error: Only SELECT queries are allowed."
-
-        # 🛑 FIX: Print to sys.stderr so it shows up in your terminal!
-        print(f"\n      🟦 [MCP SQL Executing]:\n{query}\n", file=sys.stderr)
 
         conn = sqlite3.connect(SQLITE_DB_PATH)
         cursor = conn.cursor()
@@ -50,25 +54,31 @@ def execute_sql(query: str) -> str:
         conn.close()
         
         if not rows:
-            return "No results found."
-            
-        res = " | ".join(columns) + "\n"
-        res += "-" * len(res) + "\n"
-        for row in rows:
-            res += " | ".join(str(val) if val is not None else "NULL" for val in row) + "\n"
-            
+            res = "No results found."
+        else:
+            res = " | ".join(columns) + "\n"
+            res += "-" * len(res) + "\n"
+            for row in rows:
+                res += " | ".join(str(val) if val is not None else "NULL" for val in row) + "\n"
+                
+        QUERY_CACHE[query] = res
         return res
     except Exception as e:
-        # Print errors to the terminal too so you can see if the LLM messed up!
-        print(f"\n      ❌ [MCP SQL ERROR]: {str(e)}\n")
+        print(f"\n      ❌ [MCP SQL ERROR]: {str(e)}\n", file=sys.stderr)
         return f"SQL Error: {str(e)}"
 
 @mcp.tool()
 def get_database_schema(table_names: list[str] = None) -> str:
-    """
-    Returns the exact CREATE TABLE schemas for the requested tables.
-    Use this to understand the exact column names and data types before writing SQL.
-    """
+    """Returns the exact CREATE TABLE schemas for the requested tables."""
+    global SCHEMA_CACHE
+    check_cache_invalidation()
+    
+    cache_key = str(table_names)
+    if cache_key in SCHEMA_CACHE:
+        print(f"\n      ⚡ [SCHEMA CACHE HIT]: {cache_key}\n", file=sys.stderr)
+        return SCHEMA_CACHE[cache_key]
+
+    print(f"\n      🗄️ [FETCHING SCHEMA]: {cache_key}\n", file=sys.stderr)
     try:
         conn = sqlite3.connect(SQLITE_DB_PATH)
         cursor = conn.cursor()
@@ -87,14 +97,15 @@ def get_database_schema(table_names: list[str] = None) -> str:
             
         res = "--- Database Schema ---\n"
         for row in rows:
-            # Depending on the query, the sql string is either at index 0 or 1
             sql_str = row[1] if len(row) > 1 else row[0]
             if sql_str:
                 res += sql_str + ";\n\n"
                 
+        SCHEMA_CACHE[cache_key] = res
         return res
     except Exception as e:
         return f"Schema Error: {str(e)}"
+
 
 @mcp.tool()
 def compute_portfolio_concentration(client_id: int) -> str:

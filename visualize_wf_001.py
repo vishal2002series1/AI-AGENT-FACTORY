@@ -7,7 +7,7 @@ def generate_graph_image():
     
     try:
         image_data = app.get_graph().draw_mermaid_png()
-        file_name = "wf_001_architecture.png"
+        file_name = "wf_0001_architecture.png"
         with open(file_name, "wb") as f:
             f.write(image_data)
             

@@ -1,12 +1,17 @@
 {
   "workflow_id": "WF_001",
   "workflow_name": "Client Review & Prep",
-  "description": "Prepares an advisor for upcoming meetings by identifying recent life events, stale financial documents, and missing tasks across the client book.",
+  "description": "Prepares an advisor for upcoming meetings by summarizing client information, fetching major life events, comparing goals, recent conversations, documents on file, and retrieving past interactions and notes.",
   "required_data_sources": [
     "ClientDetails",
-    "FinancialPlanningFacts",
+    "PortfolioData",
     "UpcomingClientMeetings",
-    "TranscriptInsights"
+    "TranscriptInsights",
+    "TranscriptSummary",
+    "AdvisorClients",
+    "NextBestAction",
+    "ComplianceHub",
+    "EmailInsight"
   ],
   "target_questions": [
     {
@@ -18,6 +23,31 @@
       "id": "Q2",
       "intent": "Identify aging estate plans for wealthy older clients",
       "prompt": "Which clients over 50 have estate planning documents that are more than 3 years old and have had significant balance growth or life changes since then?"
+    },
+    {
+      "id": "Q3",
+      "intent": "Compare top clients across multiple dimensions",
+      "prompt": "Compare my top ten clients — their goals, recent conversations, portfolio positioning, documents on file, and any upcoming action items — so I can identify service gaps."
+    },
+    {
+      "id": "Q4",
+      "intent": "Generate meeting prep summary",
+      "prompt": "Give me a one-page prep for my meetings this week: key clients, large transactions since last review, open tasks, and recent interactions."
+    },
+    {
+      "id": "Q5",
+      "intent": "Summarize recent interactions and follow-ups",
+      "prompt": "Summarize the last three advisor notes for the Smith household and any pending follow-ups."
+    },
+    {
+      "id": "Q6",
+      "intent": "Identify missing documents for upcoming meetings",
+      "prompt": "Which clients have incomplete or missing documents ahead of scheduled meetings?"
+    },
+    {
+      "id": "Q7",
+      "intent": "Identify outstanding tax documents",
+      "prompt": "Which clients haven't I received updated tax documents for yet?"
     }
   ],
   "governance_rules": {
