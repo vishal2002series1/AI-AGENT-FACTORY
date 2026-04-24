@@ -9,6 +9,11 @@ from src.core.evaluator import GroundingCritic
 from src.agents.fabricator import AgentFabricator
 from src.agents.config import AgentConfig, registry_manager
 
+# 🛑 CRITICAL: Suppress aggressive C++ gRPC logging from OpenTelemetry
+os.environ["GRPC_ENABLE_FORK_SUPPORT"] = "0"
+os.environ["GRPC_VERBOSITY"] = "ERROR"
+os.environ["GRPC_TRACE"] = ""
+
 class SandboxOrchestrator:
     def __init__(self):
         self.critic = GroundingCritic()

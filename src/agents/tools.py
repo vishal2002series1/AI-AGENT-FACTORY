@@ -5,6 +5,11 @@ import sys
 from langchain_core.tools import tool
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from langchain_aws import BedrockEmbeddings
+from langchain_chroma import Chroma
+
+embedder = BedrockEmbeddings(model_id="amazon.titan-embed-text-v1", region_name="us-east-1")
+DB_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../local_vector_db'))
 
 # Define how to connect to the MCP Server
 server_params = StdioServerParameters(
@@ -55,12 +60,49 @@ def compute_portfolio_concentration(client_id: int) -> str:
     return run_mcp_tool_sync("compute_portfolio_concentration", {"client_id": client_id})
 
 @tool
-def search_transcripts(semantic_query: str, n_results: int = 3) -> str:
+def search_transcripts(client_id: int, query: str) -> str:
     """
-    Search advisor notes and call transcripts for specific client concerns, life events, or themes.
-    Use this when you need unstructured qualitative data or conversational context.
+    Semantic search over a specific client's past meeting transcripts and call notes.
+    Use this to find qualitative information: life events, sentiment, family dynamics, or unprompted goals.
+    
+    Args:
+        client_id (int): The ID of the client to search.
+        query (str): The semantic question (e.g., 'Did the client mention estate planning or grandkids?')
     """
-    return run_mcp_tool_sync("search_transcripts", {"semantic_query": semantic_query, "n_results": n_results})
+    try:
+        vector_store = Chroma(persist_directory=os.path.join(DB_DIR, 'transcripts'), embedding_function=embedder)
+        # STRICT FILTERING: Prevent retrieving data from the wrong client
+        results = vector_store.similarity_search(query, k=3, filter={"client_id": client_id})
+        
+        if not results:
+            return f"No relevant transcript snippets found for Client {client_id} regarding '{query}'."
+            
+        formatted_results = [f"- {res.page_content}" for res in results]
+        return "\n".join(formatted_results)
+    except Exception as e:
+        return f"System Error retrieving transcripts: {str(e)}"
+
+@tool
+def search_client_emails(client_id: int, query: str) -> str:
+    """
+    Semantic search over a specific client's email history.
+    Use this to find asynchronous requests, sent documents, or recent questions from the client.
+    
+    Args:
+        client_id (int): The ID of the client to search.
+        query (str): The semantic question (e.g., 'Did the client email about the new trust documents?')
+    """
+    try:
+        vector_store = Chroma(persist_directory=os.path.join(DB_DIR, 'emails'), embedding_function=embedder)
+        results = vector_store.similarity_search(query, k=3, filter={"client_id": client_id})
+        
+        if not results:
+            return f"No relevant emails found for Client {client_id} regarding '{query}'."
+            
+        formatted_results = [f"- {res.page_content}" for res in results]
+        return "\n".join(formatted_results)
+    except Exception as e:
+        return f"System Error retrieving emails: {str(e)}"
 
 @tool
 def search_market_news(query: str) -> str:
@@ -79,11 +121,12 @@ def get_database_schema(table_names: list[str] = None) -> str:
     args = {"table_names": table_names} if table_names else {}
     return run_mcp_tool_sync("get_database_schema", args)
 
-# Make sure to add it to the final roster!
+# Make sure to add ALL tools to the final roster!
 AEON_TOOLS = [
     execute_sql, 
     compute_portfolio_concentration, 
     search_transcripts, 
-    search_market_news, 
-    get_database_schema   # <--- Added here
+    get_database_schema,
+    search_client_emails
+    # search_market_news
 ]

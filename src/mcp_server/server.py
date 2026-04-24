@@ -1,5 +1,14 @@
 # src/mcp_server/server.py
+# src/mcp_server/server.py
 import os
+
+# 🛑 CRITICAL: Suppress aggressive C++ gRPC logging in the background MCP process
+os.environ["GRPC_ENABLE_FORK_SUPPORT"] = "0"
+os.environ["GRPC_VERBOSITY"] = "NONE"
+os.environ["GRPC_TRACE"] = ""
+os.environ["CHROMA_TELEMETRY_IMPL"] = "None"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 import sys
 import sqlite3
 import chromadb
@@ -8,6 +17,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 mcp = FastMCP("AeonWealthMCP")
+
+
 
 LOCAL_DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data_local'))
 SQLITE_DB_PATH = os.path.join(LOCAL_DATA_DIR, 'aeon_db.sqlite') 
