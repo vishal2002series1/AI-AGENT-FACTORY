@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field
 
 from src.agents.config import registry_manager
 from src.agents.factory import AgentFactory
+from src.utils.prompt_manager import prompt_manager  # <-- Dynamic Prompts
 
 class {workflow_id}State(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
@@ -46,7 +47,7 @@ class RouterOutput(BaseModel):
     instructions: str = Field(..., description="Specific instructions for the next agent.")
     rejection_response: str = Field(
         default="", 
-        description="ONLY USE THIS IF REJECTING A QUERY. If the user asks something completely out of scope (like writing code or restaurant recommendations), write a polite refusal here. Otherwise, leave blank."
+        description="ONLY USE THIS IF REJECTING A QUERY. If the user asks something completely out of scope, write a polite refusal here."
     )
 
 def build_{workflow_id}_graph():
@@ -64,18 +65,13 @@ def build_{workflow_id}_graph():
         model_id = os.getenv("MODEL_ID", "us.anthropic.claude-sonnet-4-6")
         llm = ChatBedrock(model_id=model_id, region_name="us-east-1", temperature=0.0)
         
-        system_prompt = (
-            "You are the invisible Orchestrator for a Wealth Management workflow. "
-            "Your job is to route to the correct data-gathering agents. "
-            "Available Agents: {agent_names}. "
-            "Strategy: Call agents one by one to gather required SQL/Tool data. "
-            "When all necessary raw data is in the chat history, select FINISH. Do NOT summarize the data yourself."
-        )
+        # 🛑 Pull dynamic prompt
+        system_prompt = prompt_manager.get_prompt("supervisor_system_prompt", agent_names="{agent_names}")
         
         messages_to_pass = list(state["messages"])
         if len(messages_to_pass) > 0 and messages_to_pass[-1].type != "human":
-            nudge = HumanMessage(content="Based on the data gathered so far, what agent should I call next? Or should I FINISH?")
-            messages_to_pass.append(nudge)
+            nudge_text = prompt_manager.get_prompt("supervisor_nudge_prompt")
+            messages_to_pass.append(HumanMessage(content=nudge_text))
         
         planner = llm.with_structured_output(RouterOutput)
         
@@ -100,7 +96,6 @@ def build_{workflow_id}_graph():
              return {{"next_node": next_agent, "instructions": instructions}}
 
     # 📝 The Final Synthesis Node (For Business Users)
-    # 📝 The Final Synthesis Node (For Business Users)
     def synthesizer(state: {workflow_id}State):
         # If the last message is a rejection from the supervisor, just pass it through
         if len(state["messages"]) > 0 and state["messages"][-1].type == "ai":
@@ -110,18 +105,13 @@ def build_{workflow_id}_graph():
         model_id = os.getenv("MODEL_ID", "us.anthropic.claude-sonnet-4-6")
         llm = ChatBedrock(model_id=model_id, region_name="us-east-1", temperature=0.2)
         
-        system_prompt = (
-            "You are an expert Wealth Management Assistant reporting to a Financial Associate. "
-            "Your job is to read the raw data gathered by the internal system in the chat history "
-            "and synthesize it into a clean, beautifully formatted Markdown response that directly answers the user's initial prompt. "
-            "CRITICAL: Never mention 'agents', 'tools', 'SQL', or the 'supervisor'. Speak naturally as the unified AI assistant. If no data was found, say so politely."
-        )
+        # 🛑 Pull dynamic prompt
+        system_prompt = prompt_manager.get_prompt("synthesizer_system_prompt")
         
-        # 🛑 FIX: The "Dummy Human" Nudge for the Synthesizer
         messages_to_pass = list(state["messages"])
         if len(messages_to_pass) > 0 and messages_to_pass[-1].type != "human":
-            nudge = HumanMessage(content="Please synthesize the data above into a final, professional response for the user.")
-            messages_to_pass.append(nudge)
+            nudge_text = prompt_manager.get_prompt("synthesizer_nudge_prompt")
+            messages_to_pass.append(HumanMessage(content=nudge_text))
         
         print(f"\\n📝 [SYNTHESIZER] Formatting final response for associate...")
         response = llm.invoke([SystemMessage(content=system_prompt)] + messages_to_pass)

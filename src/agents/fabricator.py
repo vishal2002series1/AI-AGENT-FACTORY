@@ -6,6 +6,7 @@ from langchain_aws import ChatBedrock
 from langchain_core.messages import SystemMessage, HumanMessage
 from dotenv import load_dotenv
 from src.agents.tools import AEON_TOOLS
+from src.utils.prompt_manager import prompt_manager # <-- NEW IMPORT
 
 load_dotenv()
 
@@ -33,18 +34,8 @@ class DomainFabricator:
         
         self.available_tools = [tool.name for tool in AEON_TOOLS]
 
-        self.system_prompt = f"""You are the Enterprise Domain Architect for the AEON Wealth Agent Factory.
-Your job is to read a high-level Workflow Description and the Available Tables, and design a set of 3 to 6 highly capable, mutually exclusive Domain Agents to fulfill it.
-
-AVAILABLE TOOLS IN THE REGISTRY:
-{self.available_tools}
-
-RULES FOR CREATION:
-1. DOMAIN ISOLATION: Each agent must own a specific domain (e.g., Portfolio, Compliance, Interactions). Do NOT create overlap.
-2. TOOL BINDING: Assign only the tools relevant to the domain. If they use SQL, give them 'execute_sql' AND 'get_database_schema'.
-3. READ-ONLY PROXY RULE (CRITICAL): Explicitly instruct agents in their `persona` that they cannot assume perfect datetime columns exist for documents. They must use proxy data (like NextBestAction or TranscriptInsights) to infer status.
-4. NO SYNTHESIS AGENT: Do NOT build a Synthesis Agent or a Supervisor. The system will handle orchestration automatically. Just build the worker agents.
-"""
+        # 🛑 Use the Prompt Manager instead of hardcoding
+        self.system_prompt = prompt_manager.get_prompt("fabricator_system_prompt", available_tools=self.available_tools)
 
     def fabricate(self, workflow_name: str, description: str, data_sources: List[str]) -> DomainFabricatorOutput:
         human_content = f"Workflow: {workflow_name}\nDescription: {description}\nAvailable Tables: {data_sources}\n\nDesign the Domain Agents."

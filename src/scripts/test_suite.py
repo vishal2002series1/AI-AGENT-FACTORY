@@ -47,18 +47,10 @@ def run_automated_tests():
         answer = final_state["messages"][-1].content
         
         # 3. Critic Evaluation
-        eval_prompt = f"""
-        Analyze the following AI response to a wealth management query.
-        Query: {query}
-        AI Response: {answer}
+        # 3. Critic Evaluation
+        # 🛑 Use the Prompt Manager instead of hardcoding
+        eval_prompt = prompt_manager.get_prompt("critic_eval_prompt", query=query, answer=answer)
         
-        Criteria:
-        1. GROUNDING: Did it use specific client names/data or just speak in generalities?
-        2. ACCURACY: Did it claim to find information that doesn't exist?
-        3. COMPLETENESS: Did it address all parts of the user prompt?
-        
-        Output only 'PASS' or 'FAIL' followed by a 1-sentence reason.
-        """
         eval_result = critic_llm.invoke(eval_prompt).content
         
         status = "✅ PASS" if "PASS" in eval_result.upper() else "❌ FAIL"
