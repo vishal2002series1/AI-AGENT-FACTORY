@@ -51,8 +51,8 @@
     },
     {
       "id": "Q8",
-      "intent": "General conversational follow-up and ad-hoc queries",
-      "prompt": "Answer general, ad-hoc queries about specific clients, or retrieve context from previous conversation turns to answer follow-up questions."
+      "intent": "General ad-hoc client data retrieval",
+      "prompt": "What is the exact managed portfolio value for Katherine L. Davies, and what is her risk tolerance?"
     }
   ],
   "governance_rules": {

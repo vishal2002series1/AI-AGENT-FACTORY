@@ -1,312 +1,132 @@
-# AUTO-COMPILED SEMANTIC WORKFLOW: WF_001
+# AUTO-COMPILED DOMAIN SUPERVISOR: WF_001
 import os
 import operator
-from typing import Annotated, Sequence, TypedDict, Literal
-from langchain_core.messages import BaseMessage, HumanMessage
+from typing import Annotated, Sequence, TypedDict, Literal, List
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, AIMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_aws import ChatBedrock
 from pydantic import BaseModel, Field
 
-from src.agents.config import registry_manager, AgentConfig
+from src.agents.config import registry_manager
 from src.agents.factory import AgentFactory
 
 class WF_001State(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
-    current_agent: Annotated[list[str], operator.add]
+    next_node: str
+    instructions: str
 
-# 🧠 Auto-Generated Semantic Classifier Schema
-class IntentClassification(BaseModel):
-    intent: Literal["Identify clients with unaddressed life events", "Identify aging estate plans for wealthy older clients", "Compare top clients across multiple dimensions", "Generate meeting prep summary", "Summarize recent interactions and follow-ups", "Identify missing documents for upcoming meetings", "Identify outstanding tax documents", "General conversational follow-up and ad-hoc queries", "UNKNOWN"] = Field(
+# 🧠 Supervisor Routing Schema
+class RouterOutput(BaseModel):
+    next_node: Literal['client_profile_domain_agent', 'portfolio_domain_agent', 'interactions_domain_agent', 'compliance_documents_domain_agent', 'email_communications_domain_agent', 'FINISH'] = Field(
         ..., 
-        description="Classify the user's query into one of these exact intents based on the conversation history."
+        description="The exact string name of the next agent to call, or 'FINISH'."
+    )
+    instructions: str = Field(..., description="Specific instructions for the next agent.")
+    rejection_response: str = Field(
+        default="", 
+        description="ONLY USE THIS IF REJECTING A QUERY. If the user asks something completely out of scope (like writing code or restaurant recommendations), write a polite refusal here. Otherwise, leave blank."
     )
 
 def build_WF_001_graph():
     factory = AgentFactory()
-    workflow = StateGraph(WF_001State)
+    builder = StateGraph(WF_001State)
     
+    # 🏗️ Load Domain Workers
+    builder.add_node('client_profile_domain_agent', factory.build_node(registry_manager.agents.get('client_profile_domain_agent')))
+    builder.add_node('portfolio_domain_agent', factory.build_node(registry_manager.agents.get('portfolio_domain_agent')))
+    builder.add_node('interactions_domain_agent', factory.build_node(registry_manager.agents.get('interactions_domain_agent')))
+    builder.add_node('compliance_documents_domain_agent', factory.build_node(registry_manager.agents.get('compliance_documents_domain_agent')))
+    builder.add_node('email_communications_domain_agent', factory.build_node(registry_manager.agents.get('email_communications_domain_agent')))
 
-    meeting_prep_synthesis_agent_cfg = registry_manager.agents.get('meeting_prep_synthesis_agent')
-    if not meeting_prep_synthesis_agent_cfg:
-        print(f"⚠️  WARNING: Agent 'meeting_prep_synthesis_agent' was in DAG but not registry. Creating default fallback.")
-        meeting_prep_synthesis_agent_cfg = AgentConfig(
-            name='meeting_prep_synthesis_agent',
-            routing_description='Fallback agent for missing registry entry',
-            persona='You are a fallback agent. Acknowledge the query and state that your specific tools were not loaded.',
-            model_id='us.anthropic.claude-sonnet-4-6',
-            authorized_tools=[],
-            temperature=0.0
-        )
-    workflow.add_node('meeting_prep_synthesis_agent', factory.build_node(meeting_prep_synthesis_agent_cfg))
-
-    compliance_agent_cfg = registry_manager.agents.get('compliance_agent')
-    if not compliance_agent_cfg:
-        print(f"⚠️  WARNING: Agent 'compliance_agent' was in DAG but not registry. Creating default fallback.")
-        compliance_agent_cfg = AgentConfig(
-            name='compliance_agent',
-            routing_description='Fallback agent for missing registry entry',
-            persona='You are a fallback agent. Acknowledge the query and state that your specific tools were not loaded.',
-            model_id='us.anthropic.claude-sonnet-4-6',
-            authorized_tools=[],
-            temperature=0.0
-        )
-    workflow.add_node('compliance_agent', factory.build_node(compliance_agent_cfg))
-
-    financial_planning_agent_cfg = registry_manager.agents.get('financial_planning_agent')
-    if not financial_planning_agent_cfg:
-        print(f"⚠️  WARNING: Agent 'financial_planning_agent' was in DAG but not registry. Creating default fallback.")
-        financial_planning_agent_cfg = AgentConfig(
-            name='financial_planning_agent',
-            routing_description='Fallback agent for missing registry entry',
-            persona='You are a fallback agent. Acknowledge the query and state that your specific tools were not loaded.',
-            model_id='us.anthropic.claude-sonnet-4-6',
-            authorized_tools=[],
-            temperature=0.0
-        )
-    workflow.add_node('financial_planning_agent', factory.build_node(financial_planning_agent_cfg))
-
-    interaction_summarizer_agent_cfg = registry_manager.agents.get('interaction_summarizer_agent')
-    if not interaction_summarizer_agent_cfg:
-        print(f"⚠️  WARNING: Agent 'interaction_summarizer_agent' was in DAG but not registry. Creating default fallback.")
-        interaction_summarizer_agent_cfg = AgentConfig(
-            name='interaction_summarizer_agent',
-            routing_description='Fallback agent for missing registry entry',
-            persona='You are a fallback agent. Acknowledge the query and state that your specific tools were not loaded.',
-            model_id='us.anthropic.claude-sonnet-4-6',
-            authorized_tools=[],
-            temperature=0.0
-        )
-    workflow.add_node('interaction_summarizer_agent', factory.build_node(interaction_summarizer_agent_cfg))
-
-    interaction_research_agent_cfg = registry_manager.agents.get('interaction_research_agent')
-    if not interaction_research_agent_cfg:
-        print(f"⚠️  WARNING: Agent 'interaction_research_agent' was in DAG but not registry. Creating default fallback.")
-        interaction_research_agent_cfg = AgentConfig(
-            name='interaction_research_agent',
-            routing_description='Fallback agent for missing registry entry',
-            persona='You are a fallback agent. Acknowledge the query and state that your specific tools were not loaded.',
-            model_id='us.anthropic.claude-sonnet-4-6',
-            authorized_tools=[],
-            temperature=0.0
-        )
-    workflow.add_node('interaction_research_agent', factory.build_node(interaction_research_agent_cfg))
-
-    portfolio_analytics_agent_cfg = registry_manager.agents.get('portfolio_analytics_agent')
-    if not portfolio_analytics_agent_cfg:
-        print(f"⚠️  WARNING: Agent 'portfolio_analytics_agent' was in DAG but not registry. Creating default fallback.")
-        portfolio_analytics_agent_cfg = AgentConfig(
-            name='portfolio_analytics_agent',
-            routing_description='Fallback agent for missing registry entry',
-            persona='You are a fallback agent. Acknowledge the query and state that your specific tools were not loaded.',
-            model_id='us.anthropic.claude-sonnet-4-6',
-            authorized_tools=[],
-            temperature=0.0
-        )
-    workflow.add_node('portfolio_analytics_agent', factory.build_node(portfolio_analytics_agent_cfg))
-
-    transaction_monitor_agent_cfg = registry_manager.agents.get('transaction_monitor_agent')
-    if not transaction_monitor_agent_cfg:
-        print(f"⚠️  WARNING: Agent 'transaction_monitor_agent' was in DAG but not registry. Creating default fallback.")
-        transaction_monitor_agent_cfg = AgentConfig(
-            name='transaction_monitor_agent',
-            routing_description='Fallback agent for missing registry entry',
-            persona='You are a fallback agent. Acknowledge the query and state that your specific tools were not loaded.',
-            model_id='us.anthropic.claude-sonnet-4-6',
-            authorized_tools=[],
-            temperature=0.0
-        )
-    workflow.add_node('transaction_monitor_agent', factory.build_node(transaction_monitor_agent_cfg))
-
-    portfolio_concentration_agent_cfg = registry_manager.agents.get('portfolio_concentration_agent')
-    if not portfolio_concentration_agent_cfg:
-        print(f"⚠️  WARNING: Agent 'portfolio_concentration_agent' was in DAG but not registry. Creating default fallback.")
-        portfolio_concentration_agent_cfg = AgentConfig(
-            name='portfolio_concentration_agent',
-            routing_description='Fallback agent for missing registry entry',
-            persona='You are a fallback agent. Acknowledge the query and state that your specific tools were not loaded.',
-            model_id='us.anthropic.claude-sonnet-4-6',
-            authorized_tools=[],
-            temperature=0.0
-        )
-    workflow.add_node('portfolio_concentration_agent', factory.build_node(portfolio_concentration_agent_cfg))
-
-    meeting_prep_agent_cfg = registry_manager.agents.get('meeting_prep_agent')
-    if not meeting_prep_agent_cfg:
-        print(f"⚠️  WARNING: Agent 'meeting_prep_agent' was in DAG but not registry. Creating default fallback.")
-        meeting_prep_agent_cfg = AgentConfig(
-            name='meeting_prep_agent',
-            routing_description='Fallback agent for missing registry entry',
-            persona='You are a fallback agent. Acknowledge the query and state that your specific tools were not loaded.',
-            model_id='us.anthropic.claude-sonnet-4-6',
-            authorized_tools=[],
-            temperature=0.0
-        )
-    workflow.add_node('meeting_prep_agent', factory.build_node(meeting_prep_agent_cfg))
-
-    client_query_agent_cfg = registry_manager.agents.get('client_query_agent')
-    if not client_query_agent_cfg:
-        print(f"⚠️  WARNING: Agent 'client_query_agent' was in DAG but not registry. Creating default fallback.")
-        client_query_agent_cfg = AgentConfig(
-            name='client_query_agent',
-            routing_description='Fallback agent for missing registry entry',
-            persona='You are a fallback agent. Acknowledge the query and state that your specific tools were not loaded.',
-            model_id='us.anthropic.claude-sonnet-4-6',
-            authorized_tools=[],
-            temperature=0.0
-        )
-    workflow.add_node('client_query_agent', factory.build_node(client_query_agent_cfg))
-
-    synthesis_agent_cfg = registry_manager.agents.get('synthesis_agent')
-    if not synthesis_agent_cfg:
-        print(f"⚠️  WARNING: Agent 'synthesis_agent' was in DAG but not registry. Creating default fallback.")
-        synthesis_agent_cfg = AgentConfig(
-            name='synthesis_agent',
-            routing_description='Fallback agent for missing registry entry',
-            persona='You are a fallback agent. Acknowledge the query and state that your specific tools were not loaded.',
-            model_id='us.anthropic.claude-sonnet-4-6',
-            authorized_tools=[],
-            temperature=0.0
-        )
-    workflow.add_node('synthesis_agent', factory.build_node(synthesis_agent_cfg))
-
-    client_data_agent_cfg = registry_manager.agents.get('client_data_agent')
-    if not client_data_agent_cfg:
-        print(f"⚠️  WARNING: Agent 'client_data_agent' was in DAG but not registry. Creating default fallback.")
-        client_data_agent_cfg = AgentConfig(
-            name='client_data_agent',
-            routing_description='Fallback agent for missing registry entry',
-            persona='You are a fallback agent. Acknowledge the query and state that your specific tools were not loaded.',
-            model_id='us.anthropic.claude-sonnet-4-6',
-            authorized_tools=[],
-            temperature=0.0
-        )
-    workflow.add_node('client_data_agent', factory.build_node(client_data_agent_cfg))
-
-    client_info_agent_cfg = registry_manager.agents.get('client_info_agent')
-    if not client_info_agent_cfg:
-        print(f"⚠️  WARNING: Agent 'client_info_agent' was in DAG but not registry. Creating default fallback.")
-        client_info_agent_cfg = AgentConfig(
-            name='client_info_agent',
-            routing_description='Fallback agent for missing registry entry',
-            persona='You are a fallback agent. Acknowledge the query and state that your specific tools were not loaded.',
-            model_id='us.anthropic.claude-sonnet-4-6',
-            authorized_tools=[],
-            temperature=0.0
-        )
-    workflow.add_node('client_info_agent', factory.build_node(client_info_agent_cfg))
-
-    nba_agent_cfg = registry_manager.agents.get('nba_agent')
-    if not nba_agent_cfg:
-        print(f"⚠️  WARNING: Agent 'nba_agent' was in DAG but not registry. Creating default fallback.")
-        nba_agent_cfg = AgentConfig(
-            name='nba_agent',
-            routing_description='Fallback agent for missing registry entry',
-            persona='You are a fallback agent. Acknowledge the query and state that your specific tools were not loaded.',
-            model_id='us.anthropic.claude-sonnet-4-6',
-            authorized_tools=[],
-            temperature=0.0
-        )
-    workflow.add_node('nba_agent', factory.build_node(nba_agent_cfg))
-
-    life_event_transcript_agent_cfg = registry_manager.agents.get('life_event_transcript_agent')
-    if not life_event_transcript_agent_cfg:
-        print(f"⚠️  WARNING: Agent 'life_event_transcript_agent' was in DAG but not registry. Creating default fallback.")
-        life_event_transcript_agent_cfg = AgentConfig(
-            name='life_event_transcript_agent',
-            routing_description='Fallback agent for missing registry entry',
-            persona='You are a fallback agent. Acknowledge the query and state that your specific tools were not loaded.',
-            model_id='us.anthropic.claude-sonnet-4-6',
-            authorized_tools=[],
-            temperature=0.0
-        )
-    workflow.add_node('life_event_transcript_agent', factory.build_node(life_event_transcript_agent_cfg))
-
-    transcript_search_agent_cfg = registry_manager.agents.get('transcript_search_agent')
-    if not transcript_search_agent_cfg:
-        print(f"⚠️  WARNING: Agent 'transcript_search_agent' was in DAG but not registry. Creating default fallback.")
-        transcript_search_agent_cfg = AgentConfig(
-            name='transcript_search_agent',
-            routing_description='Fallback agent for missing registry entry',
-            persona='You are a fallback agent. Acknowledge the query and state that your specific tools were not loaded.',
-            model_id='us.anthropic.claude-sonnet-4-6',
-            authorized_tools=[],
-            temperature=0.0
-        )
-    workflow.add_node('transcript_search_agent', factory.build_node(transcript_search_agent_cfg))
-
-    # 🔀 Semantic Intent Router Node with Conversational Memory
-    def semantic_router(state: WF_001State) -> list[str]:
+    # 👑 The Supervisor Node
+    def supervisor(state: WF_001State):
         model_id = os.getenv("MODEL_ID", "us.anthropic.claude-sonnet-4-6")
         llm = ChatBedrock(model_id=model_id, region_name="us-east-1", temperature=0.0)
-        classifier = llm.with_structured_output(IntentClassification)
         
-        # Fetch the last 4 messages to give the router conversational context
-        recent_messages = state["messages"][-4:]
-        chat_history = "\n".join([f"{m.type}: {m.content}" for m in recent_messages])
+        system_prompt = (
+            "You are the invisible Orchestrator for a Wealth Management workflow. "
+            "Your job is to route to the correct data-gathering agents. "
+            "Available Agents: ['client_profile_domain_agent', 'portfolio_domain_agent', 'interactions_domain_agent', 'compliance_documents_domain_agent', 'email_communications_domain_agent']. "
+            "Strategy: Call agents one by one to gather required SQL/Tool data. "
+            "When all necessary raw data is in the chat history, select FINISH. Do NOT summarize the data yourself."
+        )
+        
+        messages_to_pass = list(state["messages"])
+        if len(messages_to_pass) > 0 and messages_to_pass[-1].type != "human":
+            nudge = HumanMessage(content="Based on the data gathered so far, what agent should I call next? Or should I FINISH?")
+            messages_to_pass.append(nudge)
+        
+        planner = llm.with_structured_output(RouterOutput)
         
         try:
-            classification = classifier.invoke([
-                {"role": "system", "content": "You are a Semantic Intent Router for a Wealth Management platform. Read the conversation history and classify the LATEST user intent. If it's a follow-up question, pick 'General conversational follow-up and ad-hoc queries'. If it matches nothing, select UNKNOWN."},
-                {"role": "user", "content": f"Conversation History:\n{chat_history}" }
-            ])
-            intent = classification.intent
+             response = planner.invoke([SystemMessage(content=system_prompt)] + messages_to_pass)
+             next_agent = response.next_node
+             instructions = response.instructions
+             rejection_text = response.rejection_response
         except Exception as e:
-            print(f"      ⚠️ Router Classification Failed: {e}")
-            intent = "UNKNOWN"
-            
-        print(f"\n   🔀 [MASTER ROUTER]: Classified Intent -> '{intent}'")
+             print(f"      ⚠️ Supervisor parsing error: {e}. Defaulting to FINISH.")
+             next_agent = "FINISH"
+             instructions = "Error in routing."
+             rejection_text = "I encountered an internal routing error."
+             
+        print(f"\n👑 [SUPERVISOR] Routing to: {next_agent}")
+        if next_agent != "FINISH":
+             print(f"   ↳ Instructions: {instructions}")
+             return {"next_node": next_agent, "instructions": instructions}
+        else:
+             if rejection_text:
+                 return {"next_node": next_agent, "instructions": instructions, "messages": [AIMessage(content=rejection_text)]}
+             return {"next_node": next_agent, "instructions": instructions}
+
+    # 📝 The Final Synthesis Node (For Business Users)
+    # 📝 The Final Synthesis Node (For Business Users)
+    def synthesizer(state: WF_001State):
+        # If the last message is a rejection from the supervisor, just pass it through
+        if len(state["messages"]) > 0 and state["messages"][-1].type == "ai":
+             if "internal routing error" in state["messages"][-1].content or "outside the scope" in state["messages"][-1].content or "not able to" in state["messages"][-1].content:
+                 return {"messages": []}
+
+        model_id = os.getenv("MODEL_ID", "us.anthropic.claude-sonnet-4-6")
+        llm = ChatBedrock(model_id=model_id, region_name="us-east-1", temperature=0.2)
         
-        routing_map = {
-            "Identify clients with unaddressed life events": [],
-            "Identify aging estate plans for wealthy older clients": ['life_event_transcript_agent', 'financial_planning_agent', 'portfolio_analytics_agent'],
-            "Compare top clients across multiple dimensions": ['portfolio_analytics_agent', 'client_info_agent', 'nba_agent', 'compliance_agent', 'interaction_summarizer_agent'],
-            "Generate meeting prep summary": ['client_data_agent', 'transaction_monitor_agent', 'portfolio_concentration_agent', 'interaction_research_agent'],
-            "Summarize recent interactions and follow-ups": ['interaction_summarizer_agent'],
-            "Identify missing documents for upcoming meetings": ['compliance_agent', 'meeting_prep_agent'],
-            "Identify outstanding tax documents": ['compliance_agent'],
-            "General conversational follow-up and ad-hoc queries": ['client_query_agent'],
-        }
+        system_prompt = (
+            "You are an expert Wealth Management Assistant reporting to a Financial Associate. "
+            "Your job is to read the raw data gathered by the internal system in the chat history "
+            "and synthesize it into a clean, beautifully formatted Markdown response that directly answers the user's initial prompt. "
+            "CRITICAL: Never mention 'agents', 'tools', 'SQL', or the 'supervisor'. Speak naturally as the unified AI assistant. If no data was found, say so politely."
+        )
         
-        # If UNKNOWN, route to the Fallback Agent instead of END
-        targets = routing_map.get(intent)
-        if not targets or intent == "UNKNOWN":
-            targets = routing_map.get("General conversational follow-up and ad-hoc queries", [END])
-            
-        print(f"   🚀 [MASTER ROUTER]: Firing parallel workers -> {targets}\n")
-        return targets
+        # 🛑 FIX: The "Dummy Human" Nudge for the Synthesizer
+        messages_to_pass = list(state["messages"])
+        if len(messages_to_pass) > 0 and messages_to_pass[-1].type != "human":
+            nudge = HumanMessage(content="Please synthesize the data above into a final, professional response for the user.")
+            messages_to_pass.append(nudge)
+        
+        print(f"\n📝 [SYNTHESIZER] Formatting final response for associate...")
+        response = llm.invoke([SystemMessage(content=system_prompt)] + messages_to_pass)
+        return {"messages": [response]}
 
-    # Connect START to our LLM Router
-    possible_targets = ['meeting_prep_synthesis_agent', 'compliance_agent', 'financial_planning_agent', 'interaction_summarizer_agent', 'interaction_research_agent', 'portfolio_analytics_agent', 'transaction_monitor_agent', 'portfolio_concentration_agent', 'meeting_prep_agent', 'client_query_agent', 'synthesis_agent', 'client_data_agent', 'client_info_agent', 'nba_agent', 'life_event_transcript_agent', 'transcript_search_agent'] + [END]
-    workflow.add_conditional_edges(START, semantic_router, possible_targets)
-    
-    # Internal DAG Edges
-    workflow.add_edge('life_event_transcript_agent', 'synthesis_agent')
-    workflow.add_edge('financial_planning_agent', 'synthesis_agent')
-    workflow.add_edge('portfolio_analytics_agent', 'synthesis_agent')
-    workflow.add_edge('synthesis_agent', END)
-    workflow.add_edge('portfolio_analytics_agent', 'synthesis_agent')
-    workflow.add_edge('client_info_agent', 'synthesis_agent')
-    workflow.add_edge('nba_agent', 'synthesis_agent')
-    workflow.add_edge('compliance_agent', 'synthesis_agent')
-    workflow.add_edge('interaction_summarizer_agent', 'synthesis_agent')
-    workflow.add_edge('synthesis_agent', END)
-    workflow.add_edge('client_data_agent', 'meeting_prep_synthesis_agent')
-    workflow.add_edge('transaction_monitor_agent', 'meeting_prep_synthesis_agent')
-    workflow.add_edge('portfolio_concentration_agent', 'meeting_prep_synthesis_agent')
-    workflow.add_edge('interaction_research_agent', 'meeting_prep_synthesis_agent')
-    workflow.add_edge('meeting_prep_synthesis_agent', END)
-    workflow.add_edge('interaction_summarizer_agent', END)
-    workflow.add_edge('compliance_agent', 'synthesis_agent')
-    workflow.add_edge('meeting_prep_agent', 'synthesis_agent')
-    workflow.add_edge('synthesis_agent', END)
-    workflow.add_edge('compliance_agent', END)
-    workflow.add_edge('client_query_agent', 'transcript_search_agent')
-    workflow.add_edge('transcript_search_agent', 'synthesis_agent')
-    workflow.add_edge('synthesis_agent', END)
+    builder.add_node("supervisor", supervisor)
+    builder.add_node("synthesizer", synthesizer)
 
+    # 🗺️ Logic: Always return to supervisor after a worker finishes
+    for name in ['client_profile_domain_agent', 'portfolio_domain_agent', 'interactions_domain_agent', 'compliance_documents_domain_agent', 'email_communications_domain_agent']:
+        builder.add_edge(name, "supervisor")
 
-    # Attach MemorySaver to persist state across chat turns
+    # 🏁 Logic: Supervisor routes to Synthesizer on FINISH
+    def should_continue(state: WF_001State):
+        if state["next_node"] == "FINISH":
+            return "synthesizer"
+        return state["next_node"]
+
+    builder.add_conditional_edges("supervisor", should_continue)
+    builder.add_edge("synthesizer", END)
+    builder.add_edge(START, "supervisor")
+
     memory = MemorySaver()
-    return workflow.compile(checkpointer=memory)
+    return builder.compile(checkpointer=memory)
+
+if __name__ == "__main__":
+    print("🎉 Successfully compiled Domain Supervisor graph with Synthesis.")

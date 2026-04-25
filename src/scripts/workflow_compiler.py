@@ -1,141 +1,158 @@
 # src/scripts/workflow_compiler.py
 import os
 import json
+import sys
 
-def compile_workflow(workflow_id: str):
+# Add project root to path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
+
+def compile_domain_supervisor(workflow_id: str):
     base_dir = os.path.dirname(__file__)
-    dag_path = os.path.abspath(os.path.join(base_dir, f'../../workflows/{workflow_id}_dag.json'))
     output_dir = os.path.abspath(os.path.join(base_dir, '../../src/workflows'))
+    registry_path = os.path.abspath(os.path.join(base_dir, '../../data_local/agent_registry.json'))
     os.makedirs(output_dir, exist_ok=True)
     
-    with open(dag_path, 'r') as f:
-        dag = json.load(f)
-        
+    with open(registry_path, 'r') as f:
+        agents = json.load(f)
+    
     file_path = os.path.join(output_dir, f"{workflow_id.lower()}.py")
+    agent_names = list(agents.keys())
     
-    # Generate the Literal array for the LLM classifier
-    intent_keys = list(dag.get("intents", {}).keys())
-    intent_literal = ", ".join([f'"{i}"' for i in intent_keys]) + ', "UNKNOWN"'
-    
-    # Generate the routing map (Intent -> Start Nodes)
-    routing_map_str = "{\n"
-    internal_edges_str = ""
-    
-    # Extract ALL unique nodes from the edges
-    all_nodes = set(dag.get("agents", []))
-    for intent, edges in dag.get("intents", {}).items():
-        start_nodes = []
-        for edge in edges:
-            src = edge["source"]
-            tgt = edge["target"]
-            
-            if src.upper() != "START": all_nodes.add(src)
-            if tgt.upper() != "END": all_nodes.add(tgt)
-            
-            if src.upper() == "START":
-                start_nodes.append(tgt)
-            else:
-                tgt_fmt = "END" if tgt.upper() == "END" else f"'{tgt}'"
-                internal_edges_str += f"    workflow.add_edge('{src}', {tgt_fmt})\n"
-                
-        routing_map_str += f'            "{intent}": {start_nodes},\n'
-    routing_map_str += '        }'
-
-    python_code = f"""# AUTO-COMPILED SEMANTIC WORKFLOW: {workflow_id}
+    python_code = f"""# AUTO-COMPILED DOMAIN SUPERVISOR: {workflow_id}
 import os
 import operator
-from typing import Annotated, Sequence, TypedDict, Literal
-from langchain_core.messages import BaseMessage, HumanMessage
+from typing import Annotated, Sequence, TypedDict, Literal, List
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, AIMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_aws import ChatBedrock
 from pydantic import BaseModel, Field
 
-from src.agents.config import registry_manager, AgentConfig
+from src.agents.config import registry_manager
 from src.agents.factory import AgentFactory
 
 class {workflow_id}State(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
-    current_agent: Annotated[list[str], operator.add]
+    next_node: str
+    instructions: str
 
-# 🧠 Auto-Generated Semantic Classifier Schema
-class IntentClassification(BaseModel):
-    intent: Literal[{intent_literal}] = Field(
+# 🧠 Supervisor Routing Schema
+class RouterOutput(BaseModel):
+    next_node: Literal[{", ".join([f"'{n}'" for n in agent_names])}, 'FINISH'] = Field(
         ..., 
-        description="Classify the user's query into one of these exact intents based on the conversation history."
+        description="The exact string name of the next agent to call, or 'FINISH'."
+    )
+    instructions: str = Field(..., description="Specific instructions for the next agent.")
+    rejection_response: str = Field(
+        default="", 
+        description="ONLY USE THIS IF REJECTING A QUERY. If the user asks something completely out of scope (like writing code or restaurant recommendations), write a polite refusal here. Otherwise, leave blank."
     )
 
 def build_{workflow_id}_graph():
     factory = AgentFactory()
-    workflow = StateGraph({workflow_id}State)
+    builder = StateGraph({workflow_id}State)
     
+    # 🏗️ Load Domain Workers
 """
-    # Load all required agents with a SAFEGUARD for missing agents
-    for agent in all_nodes:
-        python_code += f"""
-    {agent}_cfg = registry_manager.agents.get('{agent}')
-    if not {agent}_cfg:
-        print(f"⚠️  WARNING: Agent '{agent}' was in DAG but not registry. Creating default fallback.")
-        {agent}_cfg = AgentConfig(
-            name='{agent}',
-            routing_description='Fallback agent for missing registry entry',
-            persona='You are a fallback agent. Acknowledge the query and state that your specific tools were not loaded.',
-            model_id='us.anthropic.claude-sonnet-4-6',
-            authorized_tools=[],
-            temperature=0.0
-        )
-    workflow.add_node('{agent}', factory.build_node({agent}_cfg))
-"""
+    for name in agent_names:
+        python_code += f"    builder.add_node('{name}', factory.build_node(registry_manager.agents.get('{name}')))\n"
     
     python_code += f"""
-    # 🔀 Semantic Intent Router Node with Conversational Memory
-    def semantic_router(state: {workflow_id}State) -> list[str]:
+    # 👑 The Supervisor Node
+    def supervisor(state: {workflow_id}State):
         model_id = os.getenv("MODEL_ID", "us.anthropic.claude-sonnet-4-6")
         llm = ChatBedrock(model_id=model_id, region_name="us-east-1", temperature=0.0)
-        classifier = llm.with_structured_output(IntentClassification)
         
-        # Fetch the last 4 messages to give the router conversational context
-        recent_messages = state["messages"][-4:]
-        chat_history = "\\n".join([f"{{m.type}}: {{m.content}}" for m in recent_messages])
+        system_prompt = (
+            "You are the invisible Orchestrator for a Wealth Management workflow. "
+            "Your job is to route to the correct data-gathering agents. "
+            "Available Agents: {agent_names}. "
+            "Strategy: Call agents one by one to gather required SQL/Tool data. "
+            "When all necessary raw data is in the chat history, select FINISH. Do NOT summarize the data yourself."
+        )
+        
+        messages_to_pass = list(state["messages"])
+        if len(messages_to_pass) > 0 and messages_to_pass[-1].type != "human":
+            nudge = HumanMessage(content="Based on the data gathered so far, what agent should I call next? Or should I FINISH?")
+            messages_to_pass.append(nudge)
+        
+        planner = llm.with_structured_output(RouterOutput)
         
         try:
-            classification = classifier.invoke([
-                {{"role": "system", "content": "You are a Semantic Intent Router for a Wealth Management platform. Read the conversation history and classify the LATEST user intent. If it's a follow-up question, pick 'General conversational follow-up and ad-hoc queries'. If it matches nothing, select UNKNOWN."}},
-                {{"role": "user", "content": f"Conversation History:\\n{{chat_history}}" }}
-            ])
-            intent = classification.intent
+             response = planner.invoke([SystemMessage(content=system_prompt)] + messages_to_pass)
+             next_agent = response.next_node
+             instructions = response.instructions
+             rejection_text = response.rejection_response
         except Exception as e:
-            print(f"      ⚠️ Router Classification Failed: {{e}}")
-            intent = "UNKNOWN"
-            
-        print(f"\\n   🔀 [MASTER ROUTER]: Classified Intent -> '{{intent}}'")
-        
-        routing_map = {routing_map_str}
-        
-        # If UNKNOWN, route to the Fallback Agent instead of END
-        targets = routing_map.get(intent)
-        if not targets or intent == "UNKNOWN":
-            targets = routing_map.get("General conversational follow-up and ad-hoc queries", [END])
-            
-        print(f"   🚀 [MASTER ROUTER]: Firing parallel workers -> {{targets}}\\n")
-        return targets
+             print(f"      ⚠️ Supervisor parsing error: {{e}}. Defaulting to FINISH.")
+             next_agent = "FINISH"
+             instructions = "Error in routing."
+             rejection_text = "I encountered an internal routing error."
+             
+        print(f"\\n👑 [SUPERVISOR] Routing to: {{next_agent}}")
+        if next_agent != "FINISH":
+             print(f"   ↳ Instructions: {{instructions}}")
+             return {{"next_node": next_agent, "instructions": instructions}}
+        else:
+             if rejection_text:
+                 return {{"next_node": next_agent, "instructions": instructions, "messages": [AIMessage(content=rejection_text)]}}
+             return {{"next_node": next_agent, "instructions": instructions}}
 
-    # Connect START to our LLM Router
-    possible_targets = {list(all_nodes)} + [END]
-    workflow.add_conditional_edges(START, semantic_router, possible_targets)
-    
-    # Internal DAG Edges
-{internal_edges_str}
+    # 📝 The Final Synthesis Node (For Business Users)
+    # 📝 The Final Synthesis Node (For Business Users)
+    def synthesizer(state: {workflow_id}State):
+        # If the last message is a rejection from the supervisor, just pass it through
+        if len(state["messages"]) > 0 and state["messages"][-1].type == "ai":
+             if "internal routing error" in state["messages"][-1].content or "outside the scope" in state["messages"][-1].content or "not able to" in state["messages"][-1].content:
+                 return {{"messages": []}}
 
-    # Attach MemorySaver to persist state across chat turns
+        model_id = os.getenv("MODEL_ID", "us.anthropic.claude-sonnet-4-6")
+        llm = ChatBedrock(model_id=model_id, region_name="us-east-1", temperature=0.2)
+        
+        system_prompt = (
+            "You are an expert Wealth Management Assistant reporting to a Financial Associate. "
+            "Your job is to read the raw data gathered by the internal system in the chat history "
+            "and synthesize it into a clean, beautifully formatted Markdown response that directly answers the user's initial prompt. "
+            "CRITICAL: Never mention 'agents', 'tools', 'SQL', or the 'supervisor'. Speak naturally as the unified AI assistant. If no data was found, say so politely."
+        )
+        
+        # 🛑 FIX: The "Dummy Human" Nudge for the Synthesizer
+        messages_to_pass = list(state["messages"])
+        if len(messages_to_pass) > 0 and messages_to_pass[-1].type != "human":
+            nudge = HumanMessage(content="Please synthesize the data above into a final, professional response for the user.")
+            messages_to_pass.append(nudge)
+        
+        print(f"\\n📝 [SYNTHESIZER] Formatting final response for associate...")
+        response = llm.invoke([SystemMessage(content=system_prompt)] + messages_to_pass)
+        return {{"messages": [response]}}
+
+    builder.add_node("supervisor", supervisor)
+    builder.add_node("synthesizer", synthesizer)
+
+    # 🗺️ Logic: Always return to supervisor after a worker finishes
+    for name in {agent_names}:
+        builder.add_edge(name, "supervisor")
+
+    # 🏁 Logic: Supervisor routes to Synthesizer on FINISH
+    def should_continue(state: {workflow_id}State):
+        if state["next_node"] == "FINISH":
+            return "synthesizer"
+        return state["next_node"]
+
+    builder.add_conditional_edges("supervisor", should_continue)
+    builder.add_edge("synthesizer", END)
+    builder.add_edge(START, "supervisor")
+
     memory = MemorySaver()
-    return workflow.compile(checkpointer=memory)
+    return builder.compile(checkpointer=memory)
+
+if __name__ == "__main__":
+    print("🎉 Successfully compiled Domain Supervisor graph with Synthesis.")
 """
 
     with open(file_path, 'w') as f:
         f.write(python_code)
-    print(f"🎉 Successfully compiled semantic routing graph into: {file_path}")
 
 if __name__ == "__main__":
-    compile_workflow("WF_001")
+    compile_domain_supervisor("WF_001")
