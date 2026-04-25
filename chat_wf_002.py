@@ -30,9 +30,19 @@ def chat():
     with suppress_cpp_logs():
         app = build_WF_002_graph()
     
-    # Generate a unique thread ID for this chat session
-    thread_id = str(uuid.uuid4())
-    config = {"configurable": {"thread_id": thread_id}}
+    print("\n" + "="*50)
+    print("🧠 SESSION MANAGEMENT")
+    print("="*50)
+    session_id = input("Enter a Session ID to resume (or press Enter for a new session): ").strip()
+    
+    if not session_id:
+        # Generate a short 6-character ID for easy typing later
+        session_id = str(uuid.uuid4())[:6] 
+        print(f"🆕 Created New Session: {session_id}")
+    else:
+        print(f"🔄 Resuming Session: {session_id}")
+        
+    config = {"configurable": {"thread_id": session_id}}
     
     print("\n✅ System Ready. Type 'exit' to quit.\n")
     

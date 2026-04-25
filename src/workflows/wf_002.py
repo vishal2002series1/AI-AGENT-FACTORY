@@ -1,11 +1,12 @@
 # AUTO-COMPILED DOMAIN SUPERVISOR: WF_002
 import os
+import sqlite3
 import operator
 from typing import Annotated, Sequence, TypedDict, Literal, List
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, AIMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.sqlite import SqliteSaver
 from langchain_aws import ChatBedrock
 from pydantic import BaseModel, Field
 
@@ -118,7 +119,12 @@ def build_WF_002_graph():
     builder.add_edge("synthesizer", END)
     builder.add_edge(START, "supervisor")
 
-    memory = MemorySaver()
+    # 💾 Set up Persistent Database Memory
+    db_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data_local/sessions.db'))
+    conn = sqlite3.connect(db_path, check_same_thread=False)
+    memory = SqliteSaver(conn)
+    memory.setup()  # Automatically creates the tables if they don't exist
+
     return builder.compile(checkpointer=memory)
 
 if __name__ == "__main__":
