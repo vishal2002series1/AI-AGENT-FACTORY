@@ -5,11 +5,6 @@ import sys
 from langchain_core.tools import tool
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-from langchain_aws import BedrockEmbeddings
-from langchain_chroma import Chroma
-
-embedder = BedrockEmbeddings(model_id="amazon.titan-embed-text-v1", region_name="us-east-1")
-DB_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../local_vector_db'))
 
 # Define how to connect to the MCP Server
 server_params = StdioServerParameters(
@@ -34,7 +29,7 @@ def run_mcp_tool_sync(tool_name: str, arguments: dict) -> str:
                 
     return asyncio.run(_execute())
 
-# --- LangChain Adapters for our MCP Tools ---
+# --- Pure LangChain Adapters for our MCP Tools ---
 
 @tool
 def execute_sql(query: str) -> str:
@@ -69,18 +64,7 @@ def search_transcripts(client_id: int, query: str) -> str:
         client_id (int): The ID of the client to search.
         query (str): The semantic question (e.g., 'Did the client mention estate planning or grandkids?')
     """
-    try:
-        vector_store = Chroma(persist_directory=os.path.join(DB_DIR, 'transcripts'), embedding_function=embedder)
-        # STRICT FILTERING: Prevent retrieving data from the wrong client
-        results = vector_store.similarity_search(query, k=3, filter={"client_id": client_id})
-        
-        if not results:
-            return f"No relevant transcript snippets found for Client {client_id} regarding '{query}'."
-            
-        formatted_results = [f"- {res.page_content}" for res in results]
-        return "\n".join(formatted_results)
-    except Exception as e:
-        return f"System Error retrieving transcripts: {str(e)}"
+    return run_mcp_tool_sync("search_transcripts", {"client_id": client_id, "query": query})
 
 @tool
 def search_client_emails(client_id: int, query: str) -> str:
@@ -92,25 +76,7 @@ def search_client_emails(client_id: int, query: str) -> str:
         client_id (int): The ID of the client to search.
         query (str): The semantic question (e.g., 'Did the client email about the new trust documents?')
     """
-    try:
-        vector_store = Chroma(persist_directory=os.path.join(DB_DIR, 'emails'), embedding_function=embedder)
-        results = vector_store.similarity_search(query, k=3, filter={"client_id": client_id})
-        
-        if not results:
-            return f"No relevant emails found for Client {client_id} regarding '{query}'."
-            
-        formatted_results = [f"- {res.page_content}" for res in results]
-        return "\n".join(formatted_results)
-    except Exception as e:
-        return f"System Error retrieving emails: {str(e)}"
-
-@tool
-def search_market_news(query: str) -> str:
-    """
-    Search the web for real-time market news, macroeconomic events, and financial intelligence.
-    Use this to answer questions about recent market volatility, specific stock news, or economic indicators.
-    """
-    return run_mcp_tool_sync("search_market_news", {"query": query})
+    return run_mcp_tool_sync("search_client_emails", {"client_id": client_id, "query": query})
 
 @tool
 def get_database_schema(table_names: list[str] = None) -> str:
@@ -121,12 +87,11 @@ def get_database_schema(table_names: list[str] = None) -> str:
     args = {"table_names": table_names} if table_names else {}
     return run_mcp_tool_sync("get_database_schema", args)
 
-# Make sure to add ALL tools to the final roster!
+# 🛑 Cleaned up AEON_TOOLS: Only these 5 tools exist in our universe now.
 AEON_TOOLS = [
     execute_sql, 
     compute_portfolio_concentration, 
     search_transcripts, 
     get_database_schema,
     search_client_emails
-    # search_market_news
 ]

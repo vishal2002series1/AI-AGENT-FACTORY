@@ -1,4 +1,5 @@
 # src/core/sandbox.py
+import os
 import uuid
 import importlib
 from langchain_core.messages import HumanMessage

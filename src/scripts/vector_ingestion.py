@@ -9,64 +9,100 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# 1. Setup Embeddings (Simulating the future Embedding Microservice)
-embeddings = BedrockEmbeddings(
-    model_id="amazon.titan-embed-text-v1", # Standard Bedrock embedding model
-    region_name="us-east-1"
-)
+# We will use Bedrock Titan Embeddings as established
+embedder = BedrockEmbeddings(model_id="amazon.titan-embed-text-v1", region_name="us-east-1")
 
-# 2. Define Local Storage (Simulating Azure AI Search / pgvector)
-DB_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../local_vector_db'))
+# Define paths based on the repository structure
+BASE_DIR = os.path.dirname(__file__)
+DATA_DIR = os.path.abspath(os.path.join(BASE_DIR, '../../data_raw'))
+DB_DIR = os.path.abspath(os.path.join(BASE_DIR, '../../data_local/chroma_db'))
+
+# Ensure the database directory exists
 os.makedirs(DB_DIR, exist_ok=True)
 
 def ingest_data():
-    print("🚀 Starting Semantic Data Ingestion...")
+    print("🚀 Starting Semantic Data Ingestion...\n")
     
-    # Paths to your exported data
-    data_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data')) # Adjust path as needed
-    transcript_path = os.path.join(data_dir, "postgres_export_20260420_101547.xlsx - public_Transcript.csv")
-    email_path = os.path.join(data_dir, "postgres_export_20260420_101547.xlsx - public_Email.csv")
+    # Exact file names based on the exported data
+    files = {
+        'transcripts': 'postgres_export_20260420_101547.xlsx - public_Transcript.csv',
+        'emails': 'postgres_export_20260420_101547.xlsx - public_Email.csv',
+        'email_replies': 'postgres_export_20260420_101547.xlsx - public_EmailReply.csv',
+        'transcript_summaries': 'postgres_export_20260420_101547.xlsx - public_TranscriptSummary.csv'
+    }
 
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
-    
-    # --- Ingest Transcripts ---
-    if os.path.exists(transcript_path):
-        print("   📚 Processing Transcripts...")
-        df_transcripts = pd.read_csv(transcript_path)
-        # Combine contextual columns for the embedder
-        df_transcripts['semantic_text'] = "Call Type: " + df_transcripts['CallType'] + " | Transcript: " + df_transcripts['Transcript']
-        
-        loader = DataFrameLoader(df_transcripts, page_content_column="semantic_text")
-        docs = loader.load()
-        split_docs = text_splitter.split_documents(docs)
-        
-        # Ensure ClientId is stored as metadata for strict filtering later
-        for doc in split_docs:
-            doc.metadata = {"client_id": int(doc.metadata.get("ClientId", 0)), "source": "transcript"}
-            
-        Chroma.from_documents(split_docs, embeddings, persist_directory=os.path.join(DB_DIR, 'transcripts'))
-        print(f"   ✅ Saved {len(split_docs)} transcript chunks to Vector DB.")
-    else:
-        print(f"   ⚠️ Could not find transcript CSV at {transcript_path}")
 
-    # --- Ingest Emails ---
-    if os.path.exists(email_path):
-        print("   📧 Processing Emails...")
-        df_emails = pd.read_csv(email_path)
-        df_emails['semantic_text'] = "Subject: " + df_emails['Subject'] + " | Body: " + df_emails['Body']
+    # 1. Ingest Transcripts
+    t_path = os.path.join(DATA_DIR, files['transcripts'])
+    if os.path.exists(t_path):
+        print(f"   📚 Processing Transcripts...")
+        df = pd.read_csv(t_path).fillna("") # Handle empty rows
+        df['semantic_text'] = "Date: " + df['Date'].astype(str) + " | Type: " + df['CallType'] + " | Content: " + df['Transcript']
         
-        loader = DataFrameLoader(df_emails, page_content_column="semantic_text")
-        docs = loader.load()
+        docs = DataFrameLoader(df, page_content_column="semantic_text").load()
         split_docs = text_splitter.split_documents(docs)
         
+        # 🛑 CRITICAL: Inject ClientId so agents don't hallucinate data across clients
         for doc in split_docs:
-            doc.metadata = {"client_id": int(doc.metadata.get("ClientId", 0)), "source": "email"}
-            
-        Chroma.from_documents(split_docs, embeddings, persist_directory=os.path.join(DB_DIR, 'emails'))
-        print(f"   ✅ Saved {len(split_docs)} email chunks to Vector DB.")
+            doc.metadata = {"client_id": int(doc.metadata.get("ClientId", 0)), "source_type": "transcript"}
+        
+        Chroma.from_documents(split_docs, embedder, persist_directory=os.path.join(DB_DIR, 'transcripts'))
+        print(f"   ✅ Saved {len(split_docs)} transcript chunks to ChromaDB.\n")
     else:
-        print(f"   ⚠️ Could not find email CSV at {email_path}")
+        print(f"   ❌ Missing Transcripts file at {t_path}\n")
+
+    # 2. Ingest Emails
+    e_path = os.path.join(DATA_DIR, files['emails'])
+    if os.path.exists(e_path):
+        print(f"   📧 Processing Emails...")
+        df = pd.read_csv(e_path).fillna("")
+        df['semantic_text'] = "Date: " + df['Date'].astype(str) + " | Subject: " + df['Subject'] + " | Body: " + df['Body']
+        
+        docs = DataFrameLoader(df, page_content_column="semantic_text").load()
+        split_docs = text_splitter.split_documents(docs)
+        for doc in split_docs:
+            doc.metadata = {"client_id": int(doc.metadata.get("ClientId", 0)), "source_type": "email"}
+        
+        Chroma.from_documents(split_docs, embedder, persist_directory=os.path.join(DB_DIR, 'emails'))
+        print(f"   ✅ Saved {len(split_docs)} email chunks to ChromaDB.\n")
+    else:
+        print(f"   ❌ Missing Emails file at {e_path}\n")
+
+    # 3. Ingest Email Replies (Combine into the 'emails' vector collection)
+    er_path = os.path.join(DATA_DIR, files['email_replies'])
+    if os.path.exists(er_path):
+        print(f"   📨 Processing Email Replies...")
+        df = pd.read_csv(er_path).fillna("")
+        df['semantic_text'] = "Date: " + df['Date'].astype(str) + " | Subject: " + df['Subject'] + " | Body: " + df['Body']
+        
+        docs = DataFrameLoader(df, page_content_column="semantic_text").load()
+        split_docs = text_splitter.split_documents(docs)
+        for doc in split_docs:
+            doc.metadata = {"client_id": int(doc.metadata.get("ClientId", 0)), "source_type": "email_reply"}
+        
+        Chroma.from_documents(split_docs, embedder, persist_directory=os.path.join(DB_DIR, 'emails')) 
+        print(f"   ✅ Saved {len(split_docs)} email reply chunks to ChromaDB.\n")
+    else:
+        print(f"   ❌ Missing Email Replies file at {er_path}\n")
+
+    # 4. Ingest Transcript Summaries (Combine into the 'transcripts' vector collection)
+    ts_path = os.path.join(DATA_DIR, files['transcript_summaries'])
+    if os.path.exists(ts_path):
+        print(f"   📝 Processing Transcript Summaries...")
+        df = pd.read_csv(ts_path).fillna("")
+        df['semantic_text'] = "Summary: " + df['Summary']
+        
+        docs = DataFrameLoader(df, page_content_column="semantic_text").load()
+        split_docs = text_splitter.split_documents(docs)
+        for doc in split_docs:
+            doc.metadata = {"client_id": int(doc.metadata.get("ClientId", 0)), "source_type": "transcript_summary"}
+        
+        Chroma.from_documents(split_docs, embedder, persist_directory=os.path.join(DB_DIR, 'transcripts'))
+        print(f"   ✅ Saved {len(split_docs)} transcript summary chunks to ChromaDB.\n")
+    else:
+        print(f"   ❌ Missing Transcript Summaries file at {ts_path}\n")
 
 if __name__ == "__main__":
     ingest_data()
-    print("🎉 Ingestion Complete. Vector DB is ready for queries.")
+    print("🎉 All vector data ingested successfully! The database is ready.")

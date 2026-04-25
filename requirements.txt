@@ -15,3 +15,4 @@ openinference-instrumentation-langchain
 tavily-python
 pandas
 openpyxl
+langchain_community
