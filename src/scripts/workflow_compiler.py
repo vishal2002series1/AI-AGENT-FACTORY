@@ -21,7 +21,7 @@ def compile_workflow(workflow_id: str):
     routing_map_str = "{\n"
     internal_edges_str = ""
     
-    # 🛑 BULLETPROOF FIX: Extract ALL unique nodes from the edges to guarantee no missing nodes
+    # Extract ALL unique nodes from the edges
     all_nodes = set(dag.get("agents", []))
     for intent, edges in dag.get("intents", {}).items():
         start_nodes = []
@@ -29,7 +29,6 @@ def compile_workflow(workflow_id: str):
             src = edge["source"]
             tgt = edge["target"]
             
-            # Catch nodes missing from the "agents" array
             if src.upper() != "START": all_nodes.add(src)
             if tgt.upper() != "END": all_nodes.add(tgt)
             
@@ -49,10 +48,11 @@ from typing import Annotated, Sequence, TypedDict, Literal
 from langchain_core.messages import BaseMessage, HumanMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
+from langgraph.checkpoint.memory import MemorySaver
 from langchain_aws import ChatBedrock
 from pydantic import BaseModel, Field
 
-from src.agents.config import registry_manager
+from src.agents.config import registry_manager, AgentConfig
 from src.agents.factory import AgentFactory
 
 class {workflow_id}State(TypedDict):
@@ -63,7 +63,7 @@ class {workflow_id}State(TypedDict):
 class IntentClassification(BaseModel):
     intent: Literal[{intent_literal}] = Field(
         ..., 
-        description="Classify the user's financial query into one of these exact intents."
+        description="Classify the user's query into one of these exact intents based on the conversation history."
     )
 
 def build_{workflow_id}_graph():
@@ -71,25 +71,38 @@ def build_{workflow_id}_graph():
     workflow = StateGraph({workflow_id}State)
     
 """
-    # Load all the required agents (Using our bulletproof all_nodes set)
+    # Load all required agents with a SAFEGUARD for missing agents
     for agent in all_nodes:
-        python_code += f"    {agent}_cfg = registry_manager.agents.get('{agent}')\n"
-        python_code += f"    workflow.add_node('{agent}', factory.build_node({agent}_cfg))\n"
+        python_code += f"""
+    {agent}_cfg = registry_manager.agents.get('{agent}')
+    if not {agent}_cfg:
+        print(f"⚠️  WARNING: Agent '{agent}' was in DAG but not registry. Creating default fallback.")
+        {agent}_cfg = AgentConfig(
+            name='{agent}',
+            routing_description='Fallback agent for missing registry entry',
+            persona='You are a fallback agent. Acknowledge the query and state that your specific tools were not loaded.',
+            model_id='us.anthropic.claude-sonnet-4-6',
+            authorized_tools=[],
+            temperature=0.0
+        )
+    workflow.add_node('{agent}', factory.build_node({agent}_cfg))
+"""
     
     python_code += f"""
-    # 🔀 Semantic Intent Router Node
+    # 🔀 Semantic Intent Router Node with Conversational Memory
     def semantic_router(state: {workflow_id}State) -> list[str]:
-        # Using a fast/cheap model for routing
         model_id = os.getenv("MODEL_ID", "us.anthropic.claude-sonnet-4-6")
         llm = ChatBedrock(model_id=model_id, region_name="us-east-1", temperature=0.0)
         classifier = llm.with_structured_output(IntentClassification)
         
-        last_message = state["messages"][-1].content
+        # Fetch the last 4 messages to give the router conversational context
+        recent_messages = state["messages"][-4:]
+        chat_history = "\\n".join([f"{{m.type}}: {{m.content}}" for m in recent_messages])
         
         try:
             classification = classifier.invoke([
-                {{"role": "system", "content": "You are a Semantic Intent Router for a Wealth Management platform. Read the user's query and classify it. If it doesn't match perfectly, select UNKNOWN."}},
-                {{"role": "user", "content": last_message}}
+                {{"role": "system", "content": "You are a Semantic Intent Router for a Wealth Management platform. Read the conversation history and classify the LATEST user intent. If it's a follow-up question, pick 'General conversational follow-up and ad-hoc queries'. If it matches nothing, select UNKNOWN."}},
+                {{"role": "user", "content": f"Conversation History:\\n{{chat_history}}" }}
             ])
             intent = classification.intent
         except Exception as e:
@@ -100,7 +113,11 @@ def build_{workflow_id}_graph():
         
         routing_map = {routing_map_str}
         
-        targets = routing_map.get(intent, [END])
+        # If UNKNOWN, route to the Fallback Agent instead of END
+        targets = routing_map.get(intent)
+        if not targets or intent == "UNKNOWN":
+            targets = routing_map.get("General conversational follow-up and ad-hoc queries", [END])
+            
         print(f"   🚀 [MASTER ROUTER]: Firing parallel workers -> {{targets}}\\n")
         return targets
 
@@ -111,7 +128,9 @@ def build_{workflow_id}_graph():
     # Internal DAG Edges
 {internal_edges_str}
 
-    return workflow.compile()
+    # Attach MemorySaver to persist state across chat turns
+    memory = MemorySaver()
+    return workflow.compile(checkpointer=memory)
 """
 
     with open(file_path, 'w') as f:

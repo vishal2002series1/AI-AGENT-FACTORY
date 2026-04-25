@@ -48,6 +48,11 @@
       "id": "Q7",
       "intent": "Identify outstanding tax documents",
       "prompt": "Which clients haven't I received updated tax documents for yet?"
+    },
+    {
+      "id": "Q8",
+      "intent": "General conversational follow-up and ad-hoc queries",
+      "prompt": "Answer general, ad-hoc queries about specific clients, or retrieve context from previous conversation turns to answer follow-up questions."
     }
   ],
   "governance_rules": {
