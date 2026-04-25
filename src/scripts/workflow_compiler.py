@@ -103,7 +103,7 @@ def build_{workflow_id}_graph():
                  return {{"messages": []}}
 
         model_id = os.getenv("MODEL_ID", "us.anthropic.claude-sonnet-4-6")
-        llm = ChatBedrock(model_id=model_id, region_name="us-east-1", temperature=0.2)
+        llm = ChatBedrock(model_id=model_id, region_name="us-east-1", temperature=0.2, max_tokens=8000)
         
         # 🛑 Pull dynamic prompt
         system_prompt = prompt_manager.get_prompt("synthesizer_system_prompt")
@@ -145,4 +145,4 @@ if __name__ == "__main__":
         f.write(python_code)
 
 if __name__ == "__main__":
-    compile_domain_supervisor("WF_001")
+    compile_domain_supervisor("WF_002")
