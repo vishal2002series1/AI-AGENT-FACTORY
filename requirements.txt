@@ -16,4 +16,6 @@ tavily-python
 pandas
 openpyxl
 langchain_community
+streamlit
+nest-asyncio
 

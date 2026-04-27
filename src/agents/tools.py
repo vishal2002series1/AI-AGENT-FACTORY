@@ -1,33 +1,47 @@
 # src/agents/tools.py
-import asyncio
 import os
 import sys
+import concurrent.futures
 from langchain_core.tools import tool
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
 
-# Define how to connect to the MCP Server
-server_params = StdioServerParameters(
-    command=sys.executable,
-    args=[os.path.abspath(os.path.join(os.path.dirname(__file__), '../../src/mcp_server/server.py'))],
-)
+# --- 🔍 Robust Path Resolution for MCP Server ---
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
+path_option_1 = os.path.join(BASE_DIR, 'src', 'mcp', 'sqlite_server.py')
+path_option_2 = os.path.join(BASE_DIR, 'src', 'mcp_server', 'server.py')
 
-def run_mcp_tool_sync(tool_name: str, arguments: dict) -> str:
+if os.path.exists(path_option_1):
+    SERVER_SCRIPT_PATH = path_option_1
+else:
+    SERVER_SCRIPT_PATH = path_option_2
+
+# --- 🛡️ ISOLATED MCP WORKER ---
+def _mcp_process_worker(tool_name: str, args: dict, server_script_path: str) -> str:
     """
-    Synchronous wrapper to connect to the MCP Server, execute the tool, 
-    and return the result via the official MCP protocol.
+    Runs entirely in a separate OS process. 
+    This guarantees a pristine asyncio event loop free from Streamlit/nest_asyncio corruption.
     """
+    import asyncio
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
+
     async def _execute():
+        server_params = StdioServerParameters(
+            command=sys.executable,
+            args=[server_script_path],
+        )
         async with stdio_client(server_params) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
-                result = await session.call_tool(tool_name, arguments=arguments)
-                
-                if result.content and len(result.content) > 0:
-                    return result.content[0].text
-                return "No output from MCP server."
-                
+                result = await session.call_tool(tool_name, arguments=args)
+                return result.content[0].text
+
     return asyncio.run(_execute())
+
+def run_mcp_tool_sync(tool_name: str, args: dict) -> str:
+    """Safely execute MCP tool by outsourcing it to an isolated process."""
+    with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(_mcp_process_worker, tool_name, args, SERVER_SCRIPT_PATH)
+        return future.result()
 
 # --- Pure LangChain Adapters for our MCP Tools ---
 

@@ -14,14 +14,7 @@
   "user_mandatory_agents": [
     "client_profile_domain_agent"
   ],
-  "final_resolved_agents": [
-    "client_profile_domain_agent",
-    "portfolio_domain_agent",
-    "performance_benchmarking_domain_agent",
-    "portfolio_simulator_domain_agent",
-    "smart_insights_domain_agent",
-    "compliance_documents_domain_agent"
-  ],
+  "final_resolved_agents": [],
   "target_questions": [
     {
       "id": "Q1",

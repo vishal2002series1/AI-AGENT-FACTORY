@@ -21,7 +21,7 @@ class WF_002State(TypedDict):
 
 # 🧠 Supervisor Routing Schema
 class RouterOutput(BaseModel):
-    next_node: Literal['client_profile_domain_agent', 'portfolio_domain_agent', 'interactions_domain_agent', 'compliance_documents_domain_agent', 'email_communications_domain_agent', 'performance_benchmarking_domain_agent', 'portfolio_simulator_domain_agent', 'smart_insights_domain_agent', 'FINISH'] = Field(
+    next_node: Literal['client_profile_domain_agent', 'portfolio_domain_agent', 'performance_benchmarking_domain_agent', 'portfolio_simulator_domain_agent', 'smart_insights_domain_agent', 'compliance_documents_domain_agent', 'FINISH'] = Field(
         ..., 
         description="The exact string name of the next agent to call, or 'FINISH'."
     )
@@ -35,15 +35,13 @@ def build_WF_002_graph():
     factory = AgentFactory()
     builder = StateGraph(WF_002State)
     
-    # 🏗️ Load Domain Workers
+    # 🏗️ Load Bounded Domain Workers
     builder.add_node('client_profile_domain_agent', factory.build_node(registry_manager.agents.get('client_profile_domain_agent')))
     builder.add_node('portfolio_domain_agent', factory.build_node(registry_manager.agents.get('portfolio_domain_agent')))
-    builder.add_node('interactions_domain_agent', factory.build_node(registry_manager.agents.get('interactions_domain_agent')))
-    builder.add_node('compliance_documents_domain_agent', factory.build_node(registry_manager.agents.get('compliance_documents_domain_agent')))
-    builder.add_node('email_communications_domain_agent', factory.build_node(registry_manager.agents.get('email_communications_domain_agent')))
     builder.add_node('performance_benchmarking_domain_agent', factory.build_node(registry_manager.agents.get('performance_benchmarking_domain_agent')))
     builder.add_node('portfolio_simulator_domain_agent', factory.build_node(registry_manager.agents.get('portfolio_simulator_domain_agent')))
     builder.add_node('smart_insights_domain_agent', factory.build_node(registry_manager.agents.get('smart_insights_domain_agent')))
+    builder.add_node('compliance_documents_domain_agent', factory.build_node(registry_manager.agents.get('compliance_documents_domain_agent')))
 
     # 👑 The Supervisor Node
     def supervisor(state: WF_002State):
@@ -51,7 +49,7 @@ def build_WF_002_graph():
         llm = ChatBedrock(model_id=model_id, region_name="us-east-1", temperature=0.0)
         
         # 🛑 Pull dynamic prompt
-        system_prompt = prompt_manager.get_prompt("supervisor_system_prompt", agent_names="['client_profile_domain_agent', 'portfolio_domain_agent', 'interactions_domain_agent', 'compliance_documents_domain_agent', 'email_communications_domain_agent', 'performance_benchmarking_domain_agent', 'portfolio_simulator_domain_agent', 'smart_insights_domain_agent']")
+        system_prompt = prompt_manager.get_prompt("supervisor_system_prompt", agent_names="['client_profile_domain_agent', 'portfolio_domain_agent', 'performance_benchmarking_domain_agent', 'portfolio_simulator_domain_agent', 'smart_insights_domain_agent', 'compliance_documents_domain_agent']")
         
         messages_to_pass = list(state["messages"])
         if len(messages_to_pass) > 0 and messages_to_pass[-1].type != "human":
@@ -106,7 +104,7 @@ def build_WF_002_graph():
     builder.add_node("synthesizer", synthesizer)
 
     # 🗺️ Logic: Always return to supervisor after a worker finishes
-    for name in ['client_profile_domain_agent', 'portfolio_domain_agent', 'interactions_domain_agent', 'compliance_documents_domain_agent', 'email_communications_domain_agent', 'performance_benchmarking_domain_agent', 'portfolio_simulator_domain_agent', 'smart_insights_domain_agent']:
+    for name in ['client_profile_domain_agent', 'portfolio_domain_agent', 'performance_benchmarking_domain_agent', 'portfolio_simulator_domain_agent', 'smart_insights_domain_agent', 'compliance_documents_domain_agent']:
         builder.add_edge(name, "supervisor")
 
     # 🏁 Logic: Supervisor routes to Synthesizer on FINISH
@@ -128,4 +126,4 @@ def build_WF_002_graph():
     return builder.compile(checkpointer=memory)
 
 if __name__ == "__main__":
-    print("🎉 Successfully compiled Domain Supervisor graph with Synthesis.")
+    print("🎉 Successfully compiled Bounded Domain Supervisor graph with Synthesis.")
