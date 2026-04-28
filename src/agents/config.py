@@ -3,18 +3,23 @@ import json
 import os
 from pydantic import BaseModel, Field
 from typing import List, Dict
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 class AgentConfig(BaseModel):
     name: str = Field(..., description="The unique name of the agent")
     routing_description: str = Field(..., description="Short 1-liner for the Supervisor to understand when to route here")
     persona: str = Field(..., description="The full system prompt instructing the agent how to behave")
-    model_id: str = Field(default="us.anthropic.claude-sonnet-4-6")
+    # Dynamically pull the model from .env, defaulting to gpt-5.4
+    model_id: str = Field(default_factory=lambda: os.getenv("MODEL_ID", "gpt-5.4"))
     authorized_tools: List[str] = Field(default_factory=list)
     temperature: float = Field(default=0.0)
 
 class RegistryManager:
     def __init__(self):
-        # Resolve the path to where the JSON will live (same folder as your SQLite DB)
+        # Resolve the path to where the JSON will live
         base_dir = os.path.dirname(__file__)
         self.registry_path = os.path.abspath(os.path.join(base_dir, '../../data_local/agent_registry.json'))
         
@@ -31,7 +36,7 @@ class RegistryManager:
                 data = json.load(f)
                 return {name: AgentConfig(**config) for name, config in data.items()}
         
-        # 2. If it DOES NOT exist (First run after upgrade), Auto-Migrate defaults!
+        # 2. If it DOES NOT exist, Auto-Migrate defaults!
         print("Initializing fresh Agent Registry JSON with default AEON agents...")
         default_agents = self._get_default_agents()
         

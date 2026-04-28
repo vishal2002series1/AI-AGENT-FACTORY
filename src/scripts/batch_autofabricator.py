@@ -2,6 +2,10 @@
 import os
 import json
 import sys
+from dotenv import load_dotenv
+
+# 🟢 LOAD ENVIRONMENT VARIABLES
+load_dotenv()
 
 # 🟢 BULLETPROOF PATHING: OS-Agnostic and Absolute
 # 1. Get the absolute path of the directory this script lives in
@@ -66,7 +70,8 @@ def run_domain_fabrication(target_file="workflow_2_portfolio_performance.json"):
                 routing_description=blueprint.routing_description,
                 persona=blueprint.persona,
                 authorized_tools=blueprint.authorized_tools,
-                model_id=os.getenv("MODEL_ID", "gpt-5.4") # Defaulted to your Azure model
+                # 🟢 DYNAMIC MODEL ID: Safe fallback if .env is missing
+                model_id=os.getenv("MODEL_ID", "gpt-5.4") 
             )
             registry_manager.save_agent(config)
     else:

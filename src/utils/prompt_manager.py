@@ -4,8 +4,8 @@ import os
 
 class PromptManager:
     def __init__(self):
-        # Path to the local JSON library
-        self.library_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data_local/prompt_library.json'))
+        # 🟢 MOVED: Path points to the new Git-tracked config directory
+        self.library_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../config/prompt_library.json'))
         self.prompts = self._load_library()
 
     def _load_library(self):

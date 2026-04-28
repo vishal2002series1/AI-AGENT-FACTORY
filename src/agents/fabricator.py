@@ -40,8 +40,8 @@ class DomainFabricator:
         )
         self.structured_llm = self.llm.with_structured_output(FabricatorOutput)
         
-        # Load Prompts
-        prompt_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data_local/prompt_library.json'))
+        # 🟢 MOVED: Path points to the new Git-tracked config directory
+        prompt_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../config/prompt_library.json'))
         with open(prompt_path, 'r') as f:
             prompts = json.load(f)
         self.system_prompt = prompts.get("fabricator_system_prompt", "")
