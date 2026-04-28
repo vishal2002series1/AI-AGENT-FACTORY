@@ -6,26 +6,14 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
 from dotenv import load_dotenv
 
-# 🟢 AZURE MIGRATION: Swap Bedrock for Azure OpenAI
-from langchain_openai import AzureOpenAIEmbeddings
+# 🟢 LOCAL EMBEDDING MIGRATION: No Azure/AWS access required!
+from langchain_huggingface import HuggingFaceEmbeddings
 
 load_dotenv()
 
-# 🟢 DYNAMIC AZURE CREDENTIALS
-api_key = os.getenv("API_KEYS") # Using the key from your .env
-endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-api_version = os.getenv("OPENAI_API_VERSION")
-
-# Note: Embeddings require a specific deployment model, not your standard GPT chat model.
-embedding_deployment = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "text-embedding-ada-002")
-
-print(f"🔌 Connecting to Azure Embeddings Deployment: {embedding_deployment}")
-embedder = AzureOpenAIEmbeddings(
-    api_key=api_key,
-    azure_endpoint=endpoint,
-    api_version=api_version,
-    azure_deployment=embedding_deployment
-)
+print("🔌 Initializing Local HuggingFace Embeddings (all-MiniLM-L6-v2)...")
+# This downloads a lightweight, highly efficient open-source model directly to your machine.
+embedder = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 
 # 🟢 BULLETPROOF PATHING
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
