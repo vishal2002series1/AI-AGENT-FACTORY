@@ -1,9 +1,14 @@
 # src/agents/fabricator.py
 import os
 import json
+from dotenv import load_dotenv
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
-from langchain_aws import ChatBedrock
+
+# 🟢 AZURE MIGRATION
+from langchain_openai import AzureChatOpenAI
+
+load_dotenv()
 
 # Schema for the LLM to strictly output
 class AgentBlueprint(BaseModel):
@@ -13,17 +18,23 @@ class AgentBlueprint(BaseModel):
     authorized_tools: List[str] = Field(default_factory=list, description="A list of string names of the tools this agent has permission to use.")
 
 class FabricatorOutput(BaseModel):
-    # 🧠 NEW: Force the LLM to think step-by-step first
     thought_process: str = Field(description="Analyze the required data sources. Explain exactly which existing agents cover which sources, and identify the gaps that require brand new agents.")
     domain_agents: List[AgentBlueprint] = Field(default_factory=list, description="The list of newly fabricated agents to fill the gaps.")
     final_resolved_agents: List[str] = Field(default_factory=list, description="The complete list of all agent names required for this workflow, including new ones, reused existing ones, and the mandatory ones.")
 
 class DomainFabricator:
     def __init__(self):
-        model_id = os.getenv("MODEL_ID", "us.anthropic.claude-sonnet-4-6")
-        self.llm = ChatBedrock(
-            model_id=model_id, 
-            region_name="us-east-1", 
+        # 🟢 AZURE MIGRATION: Dynamically pull credentials
+        api_key = os.getenv("API_KEYS")
+        endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+        api_version = os.getenv("OPENAI_API_VERSION")
+        deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-5.4")
+        
+        self.llm = AzureChatOpenAI(
+            api_key=api_key,
+            azure_endpoint=endpoint,
+            api_version=api_version,
+            azure_deployment=deployment_name,
             temperature=0.0,
             max_tokens=8000
         )
@@ -35,7 +46,6 @@ class DomainFabricator:
             prompts = json.load(f)
         self.system_prompt = prompts.get("fabricator_system_prompt", "")
         
-        # Hardcoding the list for now based on our tools.py
         self.available_tools = [
             "execute_sql",
             "get_database_schema",

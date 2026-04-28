@@ -9,7 +9,9 @@ from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
 from pydantic import BaseModel
-from langchain_aws import ChatBedrock 
+
+# 🟢 AZURE MIGRATION: Swap Bedrock for Azure OpenAI
+from langchain_openai import AzureChatOpenAI 
 
 from sqlalchemy.orm import Session
 from src.db.database import SessionLocal
@@ -29,24 +31,29 @@ class AgentState(TypedDict):
 
 # --- 2. LLM Initialization ---
 def get_llm():
-    # Dynamically fetch the model ID from .env, falling back to a default if not found
-    model_id = os.getenv("MODEL_ID", "anthropic.claude-3-sonnet-20240229-v1:0")
+    # 🟢 AZURE MIGRATION: Dynamically pull credentials
+    api_key = os.getenv("API_KEYS")
+    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+    api_version = os.getenv("OPENAI_API_VERSION")
+    deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-5.4")
     
-    return ChatBedrock(
-        model_id=model_id, 
-        model_kwargs={"temperature": 0.0,
-            "max_tokens": 8000}
+    return AzureChatOpenAI(
+        api_key=api_key,
+        azure_endpoint=endpoint,
+        api_version=api_version,
+        azure_deployment=deployment_name,
+        temperature=0.0,
+        max_tokens=8000
     )
 
 # --- Helper Function: Flatten History ---
 def extract_clean_history(messages):
     """
     Extracts a clean, text-only representation of the conversation history,
-    ignoring tool calls and intermediate routing steps, to satisfy Bedrock.
+    ignoring tool calls and intermediate routing steps.
     """
     history_text = ""
     for msg in messages:
-        # Only extract the text from explicit human requests or final AI responses
         if isinstance(msg, HumanMessage):
              history_text += f"USER: {msg.content}\n\n"
         elif isinstance(msg, AIMessage) and msg.content and not msg.tool_calls:
@@ -84,7 +91,6 @@ def synthesizer_node(state: AgentState):
     """Formats the final response beautifully for the user."""
     llm = get_llm()
     
-    # Extract clean history to avoid Bedrock tool validation errors
     clean_history = extract_clean_history(state["messages"])
             
     prompt = ChatPromptTemplate.from_messages([
@@ -130,7 +136,6 @@ def build_dynamic_graph(workflow_id: str, db: Session):
     def supervisor_node(state: AgentState):
         llm = get_llm()
         
-        # Use the clean history for routing decisions to prevent Bedrock role crashes
         clean_history = extract_clean_history(state["messages"])
         
         prompt = ChatPromptTemplate.from_messages([

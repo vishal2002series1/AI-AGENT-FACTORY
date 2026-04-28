@@ -1,24 +1,28 @@
 # AUTO-COMPILED DOMAIN SUPERVISOR: WF_001
 import os
 import operator
+from dotenv import load_dotenv
 from typing import Annotated, Sequence, TypedDict, Literal, List
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, AIMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import MemorySaver
-from langchain_aws import ChatBedrock
 from pydantic import BaseModel, Field
+
+# 🟢 AZURE MIGRATION
+from langchain_openai import AzureChatOpenAI
 
 from src.agents.config import registry_manager
 from src.agents.factory import AgentFactory
-from src.utils.prompt_manager import prompt_manager  # <-- Dynamic Prompts
+from src.utils.prompt_manager import prompt_manager 
+
+load_dotenv()
 
 class WF_001State(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
     next_node: str
     instructions: str
 
-# 🧠 Supervisor Routing Schema
 class RouterOutput(BaseModel):
     next_node: Literal['client_profile_domain_agent', 'portfolio_domain_agent', 'interactions_domain_agent', 'compliance_documents_domain_agent', 'email_communications_domain_agent', 'portfolio_holdings_domain_agent', 'performance_benchmarking_domain_agent', 'opportunity_discovery_domain_agent', 'client_context_domain_agent', 'FINISH'] = Field(
         ..., 
@@ -27,14 +31,29 @@ class RouterOutput(BaseModel):
     instructions: str = Field(..., description="Specific instructions for the next agent.")
     rejection_response: str = Field(
         default="", 
-        description="ONLY USE THIS IF REJECTING A QUERY. If the user asks something completely out of scope, write a polite refusal here."
+        description="ONLY USE THIS IF REJECTING A QUERY."
+    )
+
+def get_azure_llm(temp=0.0):
+    """Helper to cleanly initialize the Azure LLM across nodes."""
+    api_key = os.getenv("API_KEYS")
+    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+    api_version = os.getenv("OPENAI_API_VERSION")
+    deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-5.4")
+    
+    return AzureChatOpenAI(
+        api_key=api_key,
+        azure_endpoint=endpoint,
+        api_version=api_version,
+        azure_deployment=deployment_name,
+        temperature=temp,
+        max_tokens=8000
     )
 
 def build_WF_001_graph():
     factory = AgentFactory()
     builder = StateGraph(WF_001State)
     
-    # 🏗️ Load Domain Workers
     builder.add_node('client_profile_domain_agent', factory.build_node(registry_manager.agents.get('client_profile_domain_agent')))
     builder.add_node('portfolio_domain_agent', factory.build_node(registry_manager.agents.get('portfolio_domain_agent')))
     builder.add_node('interactions_domain_agent', factory.build_node(registry_manager.agents.get('interactions_domain_agent')))
@@ -45,12 +64,9 @@ def build_WF_001_graph():
     builder.add_node('opportunity_discovery_domain_agent', factory.build_node(registry_manager.agents.get('opportunity_discovery_domain_agent')))
     builder.add_node('client_context_domain_agent', factory.build_node(registry_manager.agents.get('client_context_domain_agent')))
 
-    # 👑 The Supervisor Node
     def supervisor(state: WF_001State):
-        model_id = os.getenv("MODEL_ID", "us.anthropic.claude-sonnet-4-6")
-        llm = ChatBedrock(model_id=model_id, region_name="us-east-1", temperature=0.0)
+        llm = get_azure_llm(temp=0.0)
         
-        # 🛑 Pull dynamic prompt
         system_prompt = prompt_manager.get_prompt("supervisor_system_prompt", agent_names="['client_profile_domain_agent', 'portfolio_domain_agent', 'interactions_domain_agent', 'compliance_documents_domain_agent', 'email_communications_domain_agent', 'portfolio_holdings_domain_agent', 'performance_benchmarking_domain_agent', 'opportunity_discovery_domain_agent', 'client_context_domain_agent']")
         
         messages_to_pass = list(state["messages"])
@@ -80,17 +96,13 @@ def build_WF_001_graph():
                  return {"next_node": next_agent, "instructions": instructions, "messages": [AIMessage(content=rejection_text)]}
              return {"next_node": next_agent, "instructions": instructions}
 
-    # 📝 The Final Synthesis Node (For Business Users)
     def synthesizer(state: WF_001State):
-        # If the last message is a rejection from the supervisor, just pass it through
         if len(state["messages"]) > 0 and state["messages"][-1].type == "ai":
              if "internal routing error" in state["messages"][-1].content or "outside the scope" in state["messages"][-1].content or "not able to" in state["messages"][-1].content:
                  return {"messages": []}
 
-        model_id = os.getenv("MODEL_ID", "us.anthropic.claude-sonnet-4-6")
-        llm = ChatBedrock(model_id=model_id, region_name="us-east-1", temperature=0.2)
+        llm = get_azure_llm(temp=0.2)
         
-        # 🛑 Pull dynamic prompt
         system_prompt = prompt_manager.get_prompt("synthesizer_system_prompt")
         
         messages_to_pass = list(state["messages"])
@@ -105,11 +117,9 @@ def build_WF_001_graph():
     builder.add_node("supervisor", supervisor)
     builder.add_node("synthesizer", synthesizer)
 
-    # 🗺️ Logic: Always return to supervisor after a worker finishes
     for name in ['client_profile_domain_agent', 'portfolio_domain_agent', 'interactions_domain_agent', 'compliance_documents_domain_agent', 'email_communications_domain_agent', 'portfolio_holdings_domain_agent', 'performance_benchmarking_domain_agent', 'opportunity_discovery_domain_agent', 'client_context_domain_agent']:
         builder.add_edge(name, "supervisor")
 
-    # 🏁 Logic: Supervisor routes to Synthesizer on FINISH
     def should_continue(state: WF_001State):
         if state["next_node"] == "FINISH":
             return "synthesizer"

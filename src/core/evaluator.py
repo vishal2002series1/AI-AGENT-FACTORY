@@ -2,7 +2,10 @@
 import os
 from pydantic import BaseModel, Field
 from typing import Literal
-from langchain_aws import ChatBedrock
+
+# 🟢 AZURE MIGRATION
+from langchain_openai import AzureChatOpenAI
+
 from langchain_core.messages import SystemMessage, HumanMessage
 from dotenv import load_dotenv
 
@@ -20,12 +23,19 @@ class EvaluationResult(BaseModel):
 
 class GroundingCritic:
     def __init__(self): 
-        model_id = os.getenv("MODEL_ID", "us.anthropic.claude-sonnet-4-6")
+        # 🟢 AZURE MIGRATION: Dynamically pull credentials
+        api_key = os.getenv("API_KEYS")
+        endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+        api_version = os.getenv("OPENAI_API_VERSION")
+        deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-5.4")
         
-        self.llm = ChatBedrock(
-            model_id=model_id,
-            region_name="us-east-1",
-            temperature=0.0
+        self.llm = AzureChatOpenAI(
+            api_key=api_key,
+            azure_endpoint=endpoint,
+            api_version=api_version,
+            azure_deployment=deployment_name,
+            temperature=0.0,
+            max_tokens=2000
         ).with_structured_output(EvaluationResult)
 
         self.static_system_prompt = """You are an uncompromising Compliance Auditor for AEON Wealth Management.

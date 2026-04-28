@@ -1,9 +1,7 @@
 # src/agents/factory.py
 import os
-import boto3
-from botocore.config import Config
 from dotenv import load_dotenv
-from langchain_aws import ChatBedrock
+from langchain_openai import AzureChatOpenAI
 from langchain_core.messages import HumanMessage
 from src.agents.tools import AEON_TOOLS
 from src.agents.config import AgentConfig
@@ -32,22 +30,31 @@ class AgentFactory:
         else:
             print("⚠️  Arize keys not found in .env. Telemetry disabled.")
 
-        # 🛑 FIX: Build a heavy-duty AWS client with a 5-minute timeout
-        self.bedrock_config = Config(
-            region_name="us-east-1",
-            read_timeout=300,        # Give Claude 5 full minutes to think!
-            connect_timeout=120,
-            retries={'max_attempts': 3, 'mode': 'standard'}
-        )
-        self.bedrock_client = boto3.client("bedrock-runtime", config=self.bedrock_config)
+        # Removed the boto3 Bedrock initialization entirely.
 
     def build_node(self, config: AgentConfig):
-        # 🛑 FIX: Pass the heavy-duty client into LangChain
-        llm = ChatBedrock(
-            client=self.bedrock_client,
-            model_id=config.model_id,
-            max_tokens=4096,
-            model_kwargs={"temperature": config.temperature}
+        # 🛑 DEFENSIVE FIX: Catch missing agents instantly
+        if config is None:
+            raise ValueError(
+                "\n❌ CRITICAL ERROR: The graph attempted to load an agent that does not exist in your registry.\n"
+                "Please check your 'data_local/agent_registry.json' to ensure all agents hardcoded in your workflow actually exist, "
+                "or re-run your batch_autofabricator.py script."
+            )
+        # 🟢 AZURE OPENAI FIX: Centralized instantiation using proven env vars
+        api_key = os.getenv("API_KEYS")
+        endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+        api_version = os.getenv("OPENAI_API_VERSION")
+        
+        # Pull the deployment name from the environment, defaulting to your proven gpt-5.4
+        deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-5.4")
+
+        llm = AzureChatOpenAI(
+            api_key=api_key,
+            azure_endpoint=endpoint,
+            api_version=api_version,
+            azure_deployment=deployment_name,
+            temperature=config.temperature,
+            max_tokens=4096
         )
 
         agent_tools = [self.tool_map[t_name] for t_name in config.authorized_tools if t_name in self.tool_map]
