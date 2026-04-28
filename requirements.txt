@@ -18,4 +18,3 @@ langchain_community
 streamlit
 nest-asyncio
 pydantic-settings
-langchain_chroma
