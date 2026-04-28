@@ -1,5 +1,4 @@
 # src/mcp_server/server.py
-# src/mcp_server/server.py
 import os
 
 # 🛑 CRITICAL: Suppress aggressive C++ gRPC logging in the background MCP process
@@ -15,20 +14,23 @@ import chromadb
 from mcp.server.fastmcp import FastMCP
 from dotenv import load_dotenv
 import json
-from langchain_aws import BedrockEmbeddings
-from langchain_chroma import Chroma
 
-# Shared embedder for vector search
-embedder = BedrockEmbeddings(model_id="amazon.titan-embed-text-v1", region_name="us-east-1")
+# 🟢 LOCAL EMBEDDING MIGRATION: Swap AWS Bedrock for local HuggingFace
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_chroma import Chroma
 
 load_dotenv()
 mcp = FastMCP("AeonWealthMCP")
 
-
-
-LOCAL_DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data_local'))
+# --- Bulletproof Pathing ---
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
+LOCAL_DATA_DIR = os.path.join(BASE_DIR, 'data_local')
 SQLITE_DB_PATH = os.path.join(LOCAL_DATA_DIR, 'aeon_db.sqlite') 
 CHROMA_DB_PATH = os.path.join(LOCAL_DATA_DIR, 'chroma_db')
+MODEL_PATH = os.path.join(BASE_DIR, 'local_embedding_model')
+
+# 🔌 Initialize the Local Offline Embedder
+embedder = HuggingFaceEmbeddings(model_name=MODEL_PATH)
 
 # ⚡ GLOBAL CACHE STATE
 QUERY_CACHE = {}
