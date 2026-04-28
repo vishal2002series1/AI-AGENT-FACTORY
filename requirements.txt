@@ -18,4 +18,8 @@ openpyxl
 langchain_community
 streamlit
 nest-asyncio
+fastapi 
+uvicorn 
+sqlalchemy 
+pydantic-settings
 
