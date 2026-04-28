@@ -35,3 +35,6 @@ Traceback (most recent call last):
     )
 openai.OpenAIError: Missing credentials. Please pass one of `api_key`, `azure_ad_token`, `azure_ad_token_provider`, or the `AZURE_OPENAI_API_KEY` or `AZURE_OPENAI_AD_TOKEN` environment variables.
 (venv) PS C:\Users\XP343UZ\OneDrive - EY\Desktop\Project\AI-AGENT-FACTORY> python seed_db.py
+
+
+wfsdfg
