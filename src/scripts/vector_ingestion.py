@@ -1,5 +1,15 @@
 # src/scripts/vector_ingestion.py
 import os
+import warnings
+
+# 🛑 CORPORATE PROXY SSL BYPASS: Must be at the very top before other imports
+os.environ["CURL_CA_BUNDLE"] = ""
+os.environ["REQUESTS_CA_BUNDLE"] = ""
+os.environ["HF_HUB_DISABLE_SSL_VERIFICATION"] = "1"
+
+# Suppress the annoying "Unverified HTTPS request" warnings this will cause
+warnings.filterwarnings("ignore", category=UserWarning, module='urllib3')
+
 import pandas as pd
 from langchain_community.document_loaders import DataFrameLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -11,7 +21,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 
 load_dotenv()
 
-print("🔌 Initializing Local HuggingFace Embeddings (all-MiniLM-L6-v2)...")
+print("🔌 Initializing Local HuggingFace Embeddings (all-MiniLM-L6-v2) [SSL Disabled]...")
 # This downloads a lightweight, highly efficient open-source model directly to your machine.
 embedder = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 
