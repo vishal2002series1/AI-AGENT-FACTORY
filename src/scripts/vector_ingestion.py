@@ -3,17 +3,32 @@ import os
 import pandas as pd
 from langchain_community.document_loaders import DataFrameLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_aws import BedrockEmbeddings
 from langchain_chroma import Chroma
 from dotenv import load_dotenv
 
+# 🟢 AZURE MIGRATION: Swap Bedrock for Azure OpenAI
+from langchain_openai import AzureOpenAIEmbeddings
+
 load_dotenv()
 
-# We will use Bedrock Titan Embeddings as established
-embedder = BedrockEmbeddings(model_id="amazon.titan-embed-text-v1", region_name="us-east-1")
+# 🟢 DYNAMIC AZURE CREDENTIALS
+api_key = os.getenv("API_KEYS") # Using the key from your .env
+endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+api_version = os.getenv("OPENAI_API_VERSION")
 
-# Define paths based on the repository structure
-BASE_DIR = os.path.dirname(__file__)
+# Note: Embeddings require a specific deployment model, not your standard GPT chat model.
+embedding_deployment = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "text-embedding-ada-002")
+
+print(f"🔌 Connecting to Azure Embeddings Deployment: {embedding_deployment}")
+embedder = AzureOpenAIEmbeddings(
+    api_key=api_key,
+    azure_endpoint=endpoint,
+    api_version=api_version,
+    azure_deployment=embedding_deployment
+)
+
+# 🟢 BULLETPROOF PATHING
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.abspath(os.path.join(BASE_DIR, '../../data_raw'))
 DB_DIR = os.path.abspath(os.path.join(BASE_DIR, '../../data_local/chroma_db'))
 
