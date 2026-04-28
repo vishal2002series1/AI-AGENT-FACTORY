@@ -22,4 +22,5 @@ fastapi
 uvicorn 
 sqlalchemy 
 pydantic-settings
+langchain-openai
 
