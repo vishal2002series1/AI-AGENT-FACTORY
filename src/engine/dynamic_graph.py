@@ -1,13 +1,14 @@
 # src/engine/dynamic_graph.py
 import operator
 import os
+import sqlite3
 from dotenv import load_dotenv
 from typing import Annotated, Sequence, TypedDict
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import create_react_agent
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.sqlite import SqliteSaver
 from pydantic import BaseModel
 
 # 🟢 AZURE MIGRATION: Swap Bedrock for Azure OpenAI
@@ -21,8 +22,16 @@ from src.agents.tools import AEON_TOOLS
 # Load environment variables from .env file
 load_dotenv()
 
-# --- Define Memory Globally ---
-workflow_memory = MemorySaver()
+# --- 🟢 PERSISTENT STATE MEMORY ---
+# We use SqliteSaver so threads survive server restarts and cross-platform tests
+DB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data_local/threads.sqlite'))
+os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+
+# Create a connection that allows access from multiple threads (crucial for FastAPI)
+memory_conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+workflow_memory = SqliteSaver(memory_conn)
+workflow_memory.setup() # Automatically creates the necessary memory tables
+# ----------------------------------
 
 # --- 1. Graph State Definition ---
 class AgentState(TypedDict):
