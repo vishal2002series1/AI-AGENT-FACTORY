@@ -1,23 +1,5 @@
 # src/scripts/vector_ingestion.py
 import os
-import ssl
-import warnings
-
-# 🛑 THE NUCLEAR SSL BYPASS (For strict corporate firewalls)
-# Globally overrides Python's default SSL verification
-try:
-    _create_unverified_https_context = ssl._create_unverified_context
-except AttributeError:
-    pass
-else:
-    ssl._create_default_https_context = _create_unverified_https_context
-
-os.environ["CURL_CA_BUNDLE"] = ""
-os.environ["REQUESTS_CA_BUNDLE"] = ""
-os.environ["HF_HUB_DISABLE_SSL_VERIFICATION"] = "1"
-
-warnings.filterwarnings("ignore")
-
 import pandas as pd
 from langchain_community.document_loaders import DataFrameLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -28,7 +10,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 
 load_dotenv()
 
-print("🔌 Initializing Local HuggingFace Embeddings (all-MiniLM-L6-v2) [Nuclear SSL Bypass]...")
+print("🔌 Initializing Local HuggingFace Embeddings (all-MiniLM-L6-v2)...")
 embedder = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 
 # 🟢 BULLETPROOF PATHING
