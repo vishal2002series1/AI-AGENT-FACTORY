@@ -8,11 +8,9 @@ from pydantic import BaseModel
 from src.db.database import engine, SessionLocal, Base
 from src.db.models import DomainAgent, Workflow
 
-from langchain_core.messages import HumanMessage
-from src.engine.dynamic_graph import build_dynamic_graph
-
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+from src.engine.dynamic_graph import build_dynamic_graph, get_llm, workflow_memory
 from src.agents.tools import AEON_TOOLS
-from src.engine.dynamic_graph import get_llm
 from langgraph.prebuilt import create_react_agent
 
 # Ensure tables exist
@@ -43,6 +41,12 @@ class AgentSchema(BaseModel):
     class Config:
         from_attributes = True
 
+class AgentUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    routing_description: Optional[str] = None
+    persona: Optional[str] = None
+    authorized_tools: Optional[list] = None
+
 class WorkflowSchema(BaseModel):
     id: str
     name: str
@@ -51,15 +55,23 @@ class WorkflowSchema(BaseModel):
     class Config:
         from_attributes = True
 
+class WorkflowCreateRequest(BaseModel):
+    id: str
+    name: str
+    description: str
+
+class WorkflowUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+
 class MapAgentRequest(BaseModel):
     agent_id: str
 
 class ChatRequest(BaseModel):
     workflow_id: str
     prompt: str
-    session_id: Optional[str] = None  # Added for memory checkpointing
+    session_id: Optional[str] = None
 
-# --- New Schemas ---
 class ToolSchema(BaseModel):
     name: str
     description: str
@@ -69,29 +81,32 @@ class PlaygroundRequest(BaseModel):
     prompt: str
     tools: List[str] = []
 
-# --- API Endpoints ---
+# --- 🟢 SYSTEM & HEALTH ENDPOINTS ---
+@app.get("/", tags=["Health"])
+def root():
+    return {"status": "online", "message": "Aeon Agent Factory is running. Visit /docs for Swagger UI."}
 
-# --- 🛠️ Endpoint 1: List Tools ---
+@app.get("/api/system/stats", tags=["Health"])
+def get_system_stats(db: Session = Depends(get_db)):
+    """Returns high-level statistics for the admin dashboard UI."""
+    return {
+        "total_agents": db.query(DomainAgent).count(),
+        "total_workflows": db.query(Workflow).count(),
+        "status": "Healthy"
+    }
+
+# --- 🛠️ TOOL & PLAYGROUND ENDPOINTS ---
 @app.get("/api/tools", response_model=List[ToolSchema], tags=["Tools"])
 def list_available_tools():
     """Get all available tools that can be assigned to agents."""
     return [{"name": t.name, "description": t.description} for t in AEON_TOOLS]
 
-# --- 🧪 Endpoint 2: Agent Playground ---
 @app.post("/api/playground", tags=["Agent Playground"])
 def test_agent_prompt(request: PlaygroundRequest):
-    """
-    Test an agent prompt/persona directly without saving it to the database.
-    Perfect for prompt engineering and testing tool combinations.
-    """
+    """Test an agent prompt/persona directly without saving it to the database."""
     try:
-        # 1. Map requested tool names to actual tool objects
         selected_tools = [t for t in AEON_TOOLS if t.name in request.tools]
-        
-        # 2. Spin up a temporary, stateless React Agent
         temp_agent = create_react_agent(get_llm(), tools=selected_tools, prompt=request.persona)
-        
-        # 3. Execute the prompt
         inputs = {"messages": [HumanMessage(content=request.prompt)]}
         result = temp_agent.invoke(inputs)
         
@@ -104,42 +119,94 @@ def test_agent_prompt(request: PlaygroundRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
-
-@app.get("/", tags=["Health"])
-def root():
-    return {"status": "online", "message": "Aeon Agent Factory is running. Visit /docs for Swagger UI."}
-
-@app.get("/api/workflows", response_model=List[WorkflowSchema], tags=["Workflows"])
-def list_workflows(db: Session = Depends(get_db)):
-    """Get all available workflows."""
-    return db.query(Workflow).all()
-
-@app.get("/api/workflows/{workflow_id}/agents", response_model=List[AgentSchema], tags=["Workflows"])
-def get_agents_for_workflow(workflow_id: str, db: Session = Depends(get_db)):
-    """See which agents are currently mapped to a specific workflow."""
-    workflow = db.query(Workflow).filter(Workflow.id == workflow_id).first()
-    if not workflow:
-        raise HTTPException(status_code=404, detail="Workflow not found")
-    return workflow.agents
-
+# --- 🤖 AGENT CRUD ENDPOINTS ---
 @app.get("/api/agents", response_model=List[AgentSchema], tags=["Agents"])
 def list_all_agents(db: Session = Depends(get_db)):
-    """List all agents in the factory."""
     return db.query(DomainAgent).all()
 
 @app.post("/api/agents", response_model=AgentSchema, tags=["Agents"])
 def create_agent(agent: AgentSchema, db: Session = Depends(get_db)):
-    """Manually create a new agent (Phase 1)."""
     db_agent = DomainAgent(**agent.model_dump())
     db.add(db_agent)
     db.commit()
     db.refresh(db_agent)
     return db_agent
 
+@app.put("/api/agents/{agent_id}", response_model=AgentSchema, tags=["Agents"])
+def update_agent(agent_id: str, request: AgentUpdateRequest, db: Session = Depends(get_db)):
+    """Update an existing agent's configuration."""
+    db_agent = db.query(DomainAgent).filter(DomainAgent.id == agent_id).first()
+    if not db_agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+        
+    update_data = request.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(db_agent, key, value)
+        
+    db.commit()
+    db.refresh(db_agent)
+    return db_agent
+
+@app.delete("/api/agents/{agent_id}", tags=["Agents"])
+def delete_agent(agent_id: str, db: Session = Depends(get_db)):
+    """Delete an agent completely."""
+    db_agent = db.query(DomainAgent).filter(DomainAgent.id == agent_id).first()
+    if not db_agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+        
+    db.delete(db_agent)
+    db.commit()
+    return {"message": f"Agent '{agent_id}' deleted successfully."}
+
+# --- ⛓️ WORKFLOW CRUD ENDPOINTS ---
+@app.get("/api/workflows", response_model=List[WorkflowSchema], tags=["Workflows"])
+def list_workflows(db: Session = Depends(get_db)):
+    return db.query(Workflow).all()
+
+@app.post("/api/workflows", response_model=WorkflowSchema, tags=["Workflows"])
+def create_workflow(request: WorkflowCreateRequest, db: Session = Depends(get_db)):
+    """Create a new, empty workflow."""
+    db_wf = Workflow(**request.model_dump())
+    db.add(db_wf)
+    db.commit()
+    db.refresh(db_wf)
+    return db_wf
+
+@app.put("/api/workflows/{workflow_id}", response_model=WorkflowSchema, tags=["Workflows"])
+def update_workflow(workflow_id: str, request: WorkflowUpdateRequest, db: Session = Depends(get_db)):
+    """Update a workflow's name or description."""
+    db_wf = db.query(Workflow).filter(Workflow.id == workflow_id).first()
+    if not db_wf:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+        
+    update_data = request.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(db_wf, key, value)
+        
+    db.commit()
+    db.refresh(db_wf)
+    return db_wf
+
+@app.delete("/api/workflows/{workflow_id}", tags=["Workflows"])
+def delete_workflow(workflow_id: str, db: Session = Depends(get_db)):
+    """Delete a workflow."""
+    db_wf = db.query(Workflow).filter(Workflow.id == workflow_id).first()
+    if not db_wf:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+        
+    db.delete(db_wf)
+    db.commit()
+    return {"message": f"Workflow '{workflow_id}' deleted successfully."}
+
+@app.get("/api/workflows/{workflow_id}/agents", response_model=List[AgentSchema], tags=["Workflows"])
+def get_agents_for_workflow(workflow_id: str, db: Session = Depends(get_db)):
+    workflow = db.query(Workflow).filter(Workflow.id == workflow_id).first()
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    return workflow.agents
+
 @app.post("/api/workflows/{workflow_id}/map", tags=["Workflows"])
 def map_agent_to_workflow(workflow_id: str, request: MapAgentRequest, db: Session = Depends(get_db)):
-    """Attach an existing agent to a workflow."""
     workflow = db.query(Workflow).filter(Workflow.id == workflow_id).first()
     agent = db.query(DomainAgent).filter(DomainAgent.id == request.agent_id).first()
     
@@ -152,21 +219,67 @@ def map_agent_to_workflow(workflow_id: str, request: MapAgentRequest, db: Sessio
         
     return {"message": f"Agent {agent.name} successfully mapped to {workflow.name}"}
 
+@app.delete("/api/workflows/{workflow_id}/agents/{agent_id}", tags=["Workflows"])
+def unmap_agent_from_workflow(workflow_id: str, agent_id: str, db: Session = Depends(get_db)):
+    """Remove an agent from a workflow without deleting the agent entirely."""
+    workflow = db.query(Workflow).filter(Workflow.id == workflow_id).first()
+    agent = db.query(DomainAgent).filter(DomainAgent.id == agent_id).first()
+    
+    if not workflow or not agent:
+        raise HTTPException(status_code=404, detail="Workflow or Agent not found")
+        
+    if agent in workflow.agents:
+        workflow.agents.remove(agent)
+        db.commit()
+        return {"message": f"Agent {agent.name} unmapped from {workflow.name}"}
+    return {"message": "Agent was not mapped to this workflow."}
+
+# --- 🧠 MEMORY & EXECUTION ENDPOINTS ---
+@app.get("/api/sessions/{thread_id}/history", tags=["Execution"])
+def get_chat_history(thread_id: str):
+    """Retrieve the conversation history for a specific thread from the LangGraph Checkpointer."""
+    config = {"configurable": {"thread_id": thread_id}}
+    
+    try:
+        # Fetch the thread state from the checkpointer
+        state_tuple = workflow_memory.get(config)
+        
+        if not state_tuple:
+            return {"thread_id": thread_id, "messages": []}
+            
+        # Extract messages from the state 
+        state_data = state_tuple.channel_values if hasattr(state_tuple, 'channel_values') else state_tuple
+        messages = state_data.get("messages", [])
+        
+        # Format them for the UI
+        formatted_history = []
+        for msg in messages:
+            if isinstance(msg, HumanMessage):
+                formatted_history.append({"role": "user", "content": msg.content})
+            elif isinstance(msg, AIMessage) and msg.content:
+                formatted_history.append({"role": "ai", "content": msg.content})
+            elif isinstance(msg, ToolMessage):
+                formatted_history.append({"role": "tool", "content": f"[System: Executed tool '{msg.name}']"})
+                
+        return {
+            "thread_id": thread_id,
+            "messages": formatted_history
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error reading history: {str(e)}")
+
 @app.post("/api/chat", tags=["Execution"])
 def execute_chat_workflow(request: ChatRequest, db: Session = Depends(get_db)):
     try:
-        # Generate a new session ID if the frontend didn't provide one
         session_id = request.session_id or str(uuid.uuid4())
         config = {"configurable": {"thread_id": session_id}}
         
-        # Pass the injected db session directly into the engine
         graph = build_dynamic_graph(request.workflow_id, db) 
         
         inputs = {"messages": [HumanMessage(content=request.prompt)]}
         trace = []
         final_answer = ""
         
-        # Stream the graph execution exactly like your CLI script
         for event in graph.stream(inputs, config=config, stream_mode="updates"):
             if not event:
                 continue
@@ -190,5 +303,4 @@ def execute_chat_workflow(request: ChatRequest, db: Session = Depends(get_db)):
     except ValueError as ve:
         raise HTTPException(status_code=404, detail=str(ve))
     except Exception as e:
-        # This catches the Bedrock error and surfaces it to Swagger
         raise HTTPException(status_code=500, detail=str(e))
