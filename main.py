@@ -11,6 +11,10 @@ from src.db.models import DomainAgent, Workflow
 from langchain_core.messages import HumanMessage
 from src.engine.dynamic_graph import build_dynamic_graph
 
+from src.agents.tools import AEON_TOOLS
+from src.engine.dynamic_graph import get_llm
+from langgraph.prebuilt import create_react_agent
+
 # Ensure tables exist
 Base.metadata.create_all(bind=engine)
 
@@ -55,7 +59,52 @@ class ChatRequest(BaseModel):
     prompt: str
     session_id: Optional[str] = None  # Added for memory checkpointing
 
+# --- New Schemas ---
+class ToolSchema(BaseModel):
+    name: str
+    description: str
+
+class PlaygroundRequest(BaseModel):
+    persona: str
+    prompt: str
+    tools: List[str] = []
+
 # --- API Endpoints ---
+
+# --- 🛠️ Endpoint 1: List Tools ---
+@app.get("/api/tools", response_model=List[ToolSchema], tags=["Tools"])
+def list_available_tools():
+    """Get all available tools that can be assigned to agents."""
+    return [{"name": t.name, "description": t.description} for t in AEON_TOOLS]
+
+# --- 🧪 Endpoint 2: Agent Playground ---
+@app.post("/api/playground", tags=["Agent Playground"])
+def test_agent_prompt(request: PlaygroundRequest):
+    """
+    Test an agent prompt/persona directly without saving it to the database.
+    Perfect for prompt engineering and testing tool combinations.
+    """
+    try:
+        # 1. Map requested tool names to actual tool objects
+        selected_tools = [t for t in AEON_TOOLS if t.name in request.tools]
+        
+        # 2. Spin up a temporary, stateless React Agent
+        temp_agent = create_react_agent(get_llm(), tools=selected_tools, prompt=request.persona)
+        
+        # 3. Execute the prompt
+        inputs = {"messages": [HumanMessage(content=request.prompt)]}
+        result = temp_agent.invoke(inputs)
+        
+        return {
+            "status": "success",
+            "persona_tested": request.persona,
+            "tools_used": [t.name for t in selected_tools],
+            "final_answer": result["messages"][-1].content
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 
 @app.get("/", tags=["Health"])
 def root():
