@@ -10,8 +10,10 @@ from langchain_huggingface import HuggingFaceEmbeddings
 
 load_dotenv()
 
+# print("🔌 Initializing Local HuggingFace Embeddings (all-MiniLM-L6-v2)...")
+# embedder = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 print("🔌 Initializing Local HuggingFace Embeddings (all-MiniLM-L6-v2)...")
-embedder = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+embedder = HuggingFaceEmbeddings(model_name="./local_embedding_model")  # Use local path for the embedding model
 
 # 🟢 BULLETPROOF PATHING
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
