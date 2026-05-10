@@ -26,7 +26,6 @@ def post_data(endpoint, payload):
         st.error(f"Error posting data: {e}")
         return None
 
-# 🟢 NEW HELPER: For updating existing workflows
 def put_data(endpoint, payload):
     try:
         response = requests.put(f"{API_BASE}/{endpoint}", json=payload)
@@ -118,7 +117,6 @@ elif page == "Workflow Manager":
             wf_name = st.text_input("Workflow Name")
             wf_desc = st.text_input("Description")
             
-            # 🟢 EPIC 1 ADDITIONS: Optional prompts on creation
             st.markdown("**(Optional) Override Global Prompts**")
             wf_sup_prompt = st.text_area("Custom Supervisor Routing Rules", help="Leave blank to use global defaults.")
             wf_syn_prompt = st.text_area("Custom Synthesizer Persona", help="Leave blank to use global defaults.")
@@ -154,7 +152,6 @@ elif page == "Workflow Manager":
         with st.expander(f"⚙️ {wf['name']} ({wf['id']})"):
             st.write(f"**Description:** {wf['description']}")
             
-            # 🟢 EPIC 1 ADDITIONS: Editable Custom Prompts Form
             with st.form(f"update_prompts_{wf['id']}"):
                 st.markdown("**🧠 Custom Workflow Prompts**")
                 new_sup = st.text_area("Supervisor Routing Rules", value=wf.get("supervisor_prompt", "") or "", height=120)
@@ -187,18 +184,36 @@ elif page == "Workflow Manager":
 # ==========================================
 elif page == "TDD Fabricator":
     st.title("🧪 Test-Driven Agent Fabricator")
-    st.markdown("Upload Golden Test Cases to auto-architect the required Domain Agents.")
+    st.markdown("Upload Golden Test Cases to auto-architect the required Domain Agents and Routing Rules.")
     
     # --- PHASE 1: THE DRAFTING INPUTS ---
     with st.expander("📝 Step 1: Define Workflow & Upload Tests", expanded=True):
-        col1, col2 = st.columns(2)
-        wf_id = col1.text_input("Workflow ID", value="WF_NEW_01")
-        wf_name = col2.text_input("Workflow Name", value="New Domain Workflow")
-        wf_desc = st.text_area("High-Level Description")
+        # 🟢 EPIC 2 ADDITIONS: Iterative Mode Toggle
+        st.radio("Operation Mode", ["Create New Workflow", "Modify Existing Workflow"], key="fab_mode")
         
+        workflows = fetch_data("workflows")
         existing_agents = fetch_data("agents")
         agent_options = [a["id"] for a in existing_agents] if existing_agents else []
-        mandatory_agents = st.multiselect("Pre-Approved / Mandatory Agents to Include", agent_options)
+        
+        if st.session_state.fab_mode == "Modify Existing Workflow" and workflows:
+            selected_wf = st.selectbox("Select Workflow to Iterate On", workflows, format_func=lambda x: f"{x['name']} ({x['id']})")
+            
+            # Fetch currently mapped agents
+            mapped_agents = fetch_data(f"workflows/{selected_wf['id']}/agents") if selected_wf else []
+            mapped_agent_ids = [a["id"] for a in mapped_agents] if mapped_agents else []
+            
+            col1, col2 = st.columns(2)
+            wf_id = col1.text_input("Workflow ID (Locked)", value=selected_wf["id"], disabled=True)
+            wf_name = col2.text_input("Workflow Name", value=selected_wf["name"])
+            wf_desc = st.text_area("High-Level Description", value=selected_wf["description"])
+            mandatory_agents = st.multiselect("Agents to Retain/Include", agent_options, default=mapped_agent_ids)
+            
+        else:
+            col1, col2 = st.columns(2)
+            wf_id = col1.text_input("Workflow ID", value="WF_NEW_01")
+            wf_name = col2.text_input("Workflow Name", value="New Domain Workflow")
+            wf_desc = st.text_area("High-Level Description")
+            mandatory_agents = st.multiselect("Pre-Approved / Mandatory Agents to Include", agent_options)
         
         st.markdown("### Golden Test Dataset")
         upload_mode = st.radio("Input Method", ["Upload CSV/Excel", "Manual Entry"])
@@ -209,7 +224,6 @@ elif page == "TDD Fabricator":
             if uploaded_file:
                 df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
                 st.dataframe(df, use_container_width=True)
-                # Standardize column mapping dynamically
                 if not df.empty:
                     q_col = next((c for c in df.columns if 'question' in str(c).lower()), df.columns[0])
                     a_col = next((c for c in df.columns if 'expected' in str(c).lower() or 'answer' in str(c).lower()), df.columns[1] if len(df.columns) > 1 else df.columns[0])
@@ -246,6 +260,14 @@ elif page == "TDD Fabricator":
         
         st.info(f"**Fabricator Thought Process:**\n{prop.get('thought_process', 'N/A')}")
         
+        # 🟢 EPIC 2 ADDITIONS: Proposed Prompts
+        st.write("**🧠 Auto-Generated Workflow Prompts (Editable):**")
+        col_sup, col_syn = st.columns(2)
+        with col_sup:
+            e_sup = st.text_area("Supervisor Routing Rules", value=prop.get("proposed_supervisor_rules", ""), height=200)
+        with col_syn:
+            e_syn = st.text_area("Synthesizer Persona", value=prop.get("proposed_synthesizer_persona", ""), height=200)
+            
         st.write(f"**Resolved Agent Roster (Total: {len(prop.get('final_resolved_agents', []))}):**")
         final_roster_input = st.text_input("Final Agent Roster (Comma separated IDs)", value=",".join(prop.get("final_resolved_agents", [])))
         
@@ -277,12 +299,15 @@ elif page == "TDD Fabricator":
             st.success("✅ No new agents required! Existing inventory is sufficient to pass tests.")
 
         if st.button("🚀 Deploy Approved Architecture to Database", type="primary"):
+            # 🟢 EPIC 2 ADDITIONS: Send Prompts to Database
             deploy_payload = {
                 "workflow_id": st.session_state.wf_id,
                 "workflow_name": st.session_state.wf_name,
                 "workflow_description": st.session_state.wf_desc,
                 "final_resolved_agents": [x.strip() for x in final_roster_input.split(",") if x.strip()],
-                "new_agents_to_create": edited_new_agents
+                "new_agents_to_create": edited_new_agents,
+                "supervisor_prompt": e_sup.strip() if e_sup.strip() else None,
+                "synthesizer_prompt": e_syn.strip() if e_syn.strip() else None
             }
             with st.spinner("Committing to SQLite..."):
                 res = post_data("fabricator/deploy", deploy_payload)

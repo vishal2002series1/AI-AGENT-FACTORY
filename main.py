@@ -402,16 +402,18 @@ def deploy_architecture(request: FabricatorDeployRequest, db: Session = Depends(
                 id=request.workflow_id, 
                 name=request.workflow_name, 
                 description=request.workflow_description,
-                supervisor_prompt=request.supervisor_prompt,     # <-- NEW ADDITION
-                synthesizer_prompt=request.synthesizer_prompt    # <-- NEW ADDITION
+                supervisor_prompt=request.supervisor_prompt,
+                synthesizer_prompt=request.synthesizer_prompt
             )
             db.add(new_wf)
             workflow_to_map = new_wf
         else:
-            # If the workflow already exists, update its prompts if new ones are provided
-            if request.supervisor_prompt:
+            # 🟢 EPIC 2 FIX: Allow iterative updates to overwrite existing details
+            existing_wf.name = request.workflow_name
+            existing_wf.description = request.workflow_description
+            if request.supervisor_prompt is not None:
                 existing_wf.supervisor_prompt = request.supervisor_prompt
-            if request.synthesizer_prompt:
+            if request.synthesizer_prompt is not None:
                 existing_wf.synthesizer_prompt = request.synthesizer_prompt
             workflow_to_map = existing_wf
             

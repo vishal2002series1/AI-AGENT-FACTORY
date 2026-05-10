@@ -25,7 +25,17 @@ class AgentBlueprint(BaseModel):
 class FabricatorOutput(BaseModel):
     thought_process: str = Field(description="Analyze the required data sources. Explain exactly which existing agents cover which sources, and identify the gaps that require brand new agents.")
     domain_agents: List[AgentBlueprint] = Field(default_factory=list, description="The list of newly fabricated agents to fill the gaps.")
-    final_resolved_agents: List[str] = Field(default_factory=list, description="The complete list of all agent names required for this workflow, including new ones, reused existing ones, and the mandatory ones.")
+    final_resolved_agents: List[str] = Field(default_factory=list, description="The complete list of all required agent IDs (new and existing) to fulfill the workflow.")
+    
+    # 🟢 EPIC 2 ADDITION: Workflow-Level Prompts
+    proposed_supervisor_rules: str = Field(
+        default="", 
+        description="Custom routing rules for the Supervisor. Tell it exactly WHEN to route to which agent based on the test cases."
+    )
+    proposed_synthesizer_persona: str = Field(
+        default="", 
+        description="Custom persona for the Synthesizer. Give it a specific voice or specific Markdown formatting instructions based on the workflow intent."
+    )
 
 class DomainFabricator:
     def __init__(self):
@@ -129,6 +139,7 @@ class DomainFabricator:
         2. DOMAIN AGENTS: Generate blueprints for ONLY the BRAND NEW agents required to fill the gaps. Keep personas concise and focused on passing the tests.
         3. FINAL ROSTER: Populate 'final_resolved_agents' with the names of ALL agents required (your new ones + the existing ones you are reusing).
         4. ZERO-HALLUCINATION TOOL RULE: When assigning 'authorized_tools', you are strictly FORBIDDEN from making up tool names. You MUST ONLY use the exact string names provided in the 'AVAILABLE TOOLS IN FACTORY INVENTORY' list above.
+        5. WORKFLOW PROMPTS: Generate 'proposed_supervisor_rules' instructing the Supervisor exactly how to route between your 'final_resolved_agents'. Generate a 'proposed_synthesizer_persona' dictating how the final answer should be formatted.
         """
         
         print("🧠 Fabricator is reasoning about the Golden Test Dataset...")
