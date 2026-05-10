@@ -12,6 +12,7 @@ from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 from src.engine.dynamic_graph import build_dynamic_graph, get_llm, workflow_memory
 from src.agents.tools import AEON_TOOLS
 from langgraph.prebuilt import create_react_agent
+from src.agents.fabricator import DomainFabricator
 
 
 
@@ -53,6 +54,8 @@ class WorkflowSchema(BaseModel):
     id: str
     name: str
     description: str
+    supervisor_prompt: Optional[str] = None  # <-- NEW ADDITION
+    synthesizer_prompt: Optional[str] = None # <-- NEW ADDITION
 
     class Config:
         from_attributes = True
@@ -61,10 +64,14 @@ class WorkflowCreateRequest(BaseModel):
     id: str
     name: str
     description: str
+    supervisor_prompt: Optional[str] = None  # <-- NEW ADDITION
+    synthesizer_prompt: Optional[str] = None # <-- NEW ADDITION
 
 class WorkflowUpdateRequest(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+    supervisor_prompt: Optional[str] = None  # <-- Added for it to be  endpoint updatable
+    synthesizer_prompt: Optional[str] = None # <-- Added for it to be  endpoint updatable
 
 class MapAgentRequest(BaseModel):
     agent_id: str
@@ -82,6 +89,26 @@ class PlaygroundRequest(BaseModel):
     persona: str
     prompt: str
     tools: List[str] = []
+
+# --- NEW: TDD Fabricator Schemas ---
+class TestCaseSchema(BaseModel):
+    question: str
+    expected_answer: str
+
+class FabricatorProposeRequest(BaseModel):
+    workflow_name: str
+    workflow_description: str
+    mandatory_agents: List[str] = []
+    test_cases: List[TestCaseSchema]
+
+class FabricatorDeployRequest(BaseModel):
+    workflow_id: str
+    workflow_name: str
+    workflow_description: str
+    final_resolved_agents: List[str]
+    new_agents_to_create: List[AgentSchema]
+    supervisor_prompt: Optional[str] = None  # <-- NEW ADDITION
+    synthesizer_prompt: Optional[str] = None # <-- NEW ADDITION
 
 # --- 🟢 SYSTEM & HEALTH ENDPOINTS ---
 @app.get("/", tags=["Health"])
@@ -306,3 +333,99 @@ def execute_chat_workflow(request: ChatRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail=str(ve))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# ==========================================
+# TEST-DRIVEN AUTOFABRICATOR ENDPOINTS
+# ==========================================
+
+
+@app.post("/api/fabricator/propose", tags=["Fabricator"])
+def propose_architecture(request: FabricatorProposeRequest, db: Session = Depends(get_db)):
+    """
+    Phase 1: Analyzes tests, checks the DB for existing agents, and proposes a graph architecture.
+    Does NOT save to the database.
+    """
+    try:
+        # 1. Fetch live inventory of existing agents from the database
+        existing_agents = db.query(DomainAgent).all()
+        existing_agents_str = ""
+        for a in existing_agents:
+            existing_agents_str += f"- Name: {a.id} | Desc: {a.routing_description} | Tools: {a.authorized_tools}\n"
+            
+        # 2. Extract available tools dynamically from AEON_TOOLS
+        available_tools = [t.name for t in AEON_TOOLS]
+        
+        # 3. Format the test cases
+        tests_formatted = [{"question": tc.question, "expected_answer": tc.expected_answer} for tc in request.test_cases]
+        
+        # 4. Call the new TDD method in the Fabricator
+        fabricator = DomainFabricator()
+        proposal = fabricator.propose_from_tests(
+            wf_name=request.workflow_name,
+            description=request.workflow_description,
+            test_cases=tests_formatted,
+            available_tools=available_tools,
+            existing_agents_str=existing_agents_str,
+            user_mandatory_agents=request.mandatory_agents
+        )
+        
+        return proposal.dict()
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Fabrication failed: {str(e)}")
+
+@app.post("/api/fabricator/deploy", tags=["Fabricator"])
+def deploy_architecture(request: FabricatorDeployRequest, db: Session = Depends(get_db)):
+    """
+    Phase 3: Receives the human-approved architecture and commits it to the SQLite database.
+    """
+    try:
+        # 1. Create any brand new agents
+        for agent_data in request.new_agents_to_create:
+            existing_agent = db.query(DomainAgent).filter(DomainAgent.id == agent_data.id).first()
+            if not existing_agent:
+                new_agent = DomainAgent(
+                    id=agent_data.id,
+                    name=agent_data.name,
+                    routing_description=agent_data.routing_description,
+                    persona=agent_data.persona,
+                    authorized_tools=agent_data.authorized_tools
+                )
+                db.add(new_agent)
+        
+        # 2. Create or Update the workflow
+        existing_wf = db.query(Workflow).filter(Workflow.id == request.workflow_id).first()
+        if not existing_wf:
+            new_wf = Workflow(
+                id=request.workflow_id, 
+                name=request.workflow_name, 
+                description=request.workflow_description,
+                supervisor_prompt=request.supervisor_prompt,     # <-- NEW ADDITION
+                synthesizer_prompt=request.synthesizer_prompt    # <-- NEW ADDITION
+            )
+            db.add(new_wf)
+            workflow_to_map = new_wf
+        else:
+            # If the workflow already exists, update its prompts if new ones are provided
+            if request.supervisor_prompt:
+                existing_wf.supervisor_prompt = request.supervisor_prompt
+            if request.synthesizer_prompt:
+                existing_wf.synthesizer_prompt = request.synthesizer_prompt
+            workflow_to_map = existing_wf
+            
+        # 3. Map the agents to the workflow
+        db.commit() # Commit first so agents exist before mapping
+        workflow_to_map.agents = [] # clear existing
+        for agent_id in request.final_resolved_agents:
+            agent = db.query(DomainAgent).filter(DomainAgent.id == agent_id).first()
+            if agent:
+                workflow_to_map.agents.append(agent)
+                
+        db.commit()
+        return {"status": "success", "message": f"Workflow {request.workflow_id} deployed successfully!"}
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Deployment failed: {str(e)}")

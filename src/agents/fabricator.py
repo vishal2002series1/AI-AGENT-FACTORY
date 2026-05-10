@@ -15,7 +15,12 @@ class AgentBlueprint(BaseModel):
     name: str = Field(description="The exact variable name for the agent (e.g., 'meeting_prep_domain_agent'). Must end in '_domain_agent'")
     routing_description: str = Field(description="A 1-2 sentence description for the Supervisor to know when to route to this agent.")
     persona: str = Field(description="The system prompt for the agent. Must include the exact tool names it should use.")
-    authorized_tools: List[str] = Field(default_factory=list, description="A list of string names of the tools this agent has permission to use.")
+    
+    # THE FIX: Aggressive Guardrail against Tool Hallucination - Author: Vishal Singh
+    authorized_tools: List[str] = Field(
+        default_factory=list, 
+        description="CRITICAL: You MUST ONLY select tools from the 'AVAILABLE TOOLS' list. NEVER invent, hallucinate, or guess a tool name."
+    )
 
 class FabricatorOutput(BaseModel):
     thought_process: str = Field(description="Analyze the required data sources. Explain exactly which existing agents cover which sources, and identify the gaps that require brand new agents.")
@@ -82,6 +87,55 @@ class DomainFabricator:
         
         if not result.final_resolved_agents:
             print("⚠️ Notice: LLM returned empty roster. Enforcing mandatory agents as fallback...")
+            result.final_resolved_agents = user_mandatory_agents
+            
+        return result
+    
+    # --- NEW METHOD: Test-Driven Fabrication ---  Author : Vishal Singh
+    def propose_from_tests(self, wf_name: str, description: str, test_cases: List[Dict], available_tools: List[str], existing_agents_str: str, user_mandatory_agents: List[str] = None) -> FabricatorOutput:
+        """
+        Phase 1 TDD Fabricator: Analyzes golden test cases to reverse-engineer required agents.
+        """
+        # Read the system prompt from the prompt library (or fallback)
+        try:
+            path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../config/prompt_library.json'))
+            with open(path, 'r') as f:
+                prompts = json.load(f)
+                system_base = prompts.get("fabricator_system_prompt", "You are the Enterprise Domain Architect.")
+        except:
+            system_base = "You are the Enterprise Domain Architect."
+
+        formatted_system = system_base.format(
+            available_tools=json.dumps(available_tools),
+            user_mandatory_agents=", ".join(user_mandatory_agents) if user_mandatory_agents else "None",
+            existing_agents=existing_agents_str
+        )
+        
+        prompt = f"""
+        {formatted_system}
+        
+        AVAILABLE TOOLS IN FACTORY INVENTORY:
+        {json.dumps(available_tools, indent=2)}
+        
+        WORKFLOW TO FABRICATE:
+        Name: {wf_name}
+        Description: {description}
+        
+        GOLDEN TEST DATASET (Questions this workflow MUST be able to answer):
+        {json.dumps(test_cases, indent=2)}
+        
+        CRITICAL INSTRUCTIONS:
+        1. THOUGHT PROCESS: Analyze the Golden Test Dataset. Determine exactly what data is needed to answer these questions. Check the EXISTING AGENTS to see if they can fetch this data using their tools. Identify any capability gaps.
+        2. DOMAIN AGENTS: Generate blueprints for ONLY the BRAND NEW agents required to fill the gaps. Keep personas concise and focused on passing the tests.
+        3. FINAL ROSTER: Populate 'final_resolved_agents' with the names of ALL agents required (your new ones + the existing ones you are reusing).
+        4. ZERO-HALLUCINATION TOOL RULE: When assigning 'authorized_tools', you are strictly FORBIDDEN from making up tool names. You MUST ONLY use the exact string names provided in the 'AVAILABLE TOOLS IN FACTORY INVENTORY' list above.
+        """
+        
+        print("🧠 Fabricator is reasoning about the Golden Test Dataset...")
+        result = self.structured_llm.invoke(prompt)
+        print(f"\n💭 Fabricator Thought Process:\n{result.thought_process}\n")
+        
+        if not result.final_resolved_agents and user_mandatory_agents:
             result.final_resolved_agents = user_mandatory_agents
             
         return result

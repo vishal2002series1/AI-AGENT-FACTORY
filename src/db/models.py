@@ -29,6 +29,11 @@ class Workflow(Base):
     id = Column(String, primary_key=True, index=True) # e.g., 'WF_003'
     name = Column(String, nullable=False)
     description = Column(Text, nullable=False)
+    
+    # --- NEW COLUMNS FOR EPIC 1 ---
+    # Made nullable so we can fallback to global prompt_library.json if empty
+    supervisor_prompt = Column(Text, nullable=True) 
+    synthesizer_prompt = Column(Text, nullable=True)
 
     # Links to agents
     agents = relationship("DomainAgent", secondary=workflow_agent_association, back_populates="workflows")

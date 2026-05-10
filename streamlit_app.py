@@ -26,6 +26,16 @@ def post_data(endpoint, payload):
         st.error(f"Error posting data: {e}")
         return None
 
+# 🟢 NEW HELPER: For updating existing workflows
+def put_data(endpoint, payload):
+    try:
+        response = requests.put(f"{API_BASE}/{endpoint}", json=payload)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        st.error(f"Error updating data: {e}")
+        return None
+
 def delete_data(endpoint):
     try:
         response = requests.delete(f"{API_BASE}/{endpoint}")
@@ -37,7 +47,7 @@ def delete_data(endpoint):
 
 # --- UI NAVIGATION ---
 st.sidebar.title("🤖 Aeon Factory")
-page = st.sidebar.radio("Navigation", ["Dashboard", "Agent Builder", "Workflow Manager", "Playground", "Execution Chat"])
+page = st.sidebar.radio("Navigation", ["Dashboard", "Agent Builder", "Workflow Manager", "TDD Fabricator", "Playground", "Execution Chat"])
 
 # ==========================================
 # 📊 PAGE 1: DASHBOARD
@@ -60,7 +70,6 @@ if page == "Dashboard":
 elif page == "Agent Builder":
     st.title("Agent Builder")
     
-    # List Existing Agents
     st.subheader("Current Agents")
     agents = fetch_data("agents")
     if agents:
@@ -69,7 +78,6 @@ elif page == "Agent Builder":
     
     st.divider()
     
-    # Create Agent Form
     st.subheader("Create New Agent")
     with st.form("create_agent_form"):
         col1, col2 = st.columns(2)
@@ -79,7 +87,6 @@ elif page == "Agent Builder":
         a_desc = st.text_input("Routing Description (Used by Supervisor)")
         a_persona = st.text_area("System Persona / Prompt")
         
-        # Fetch available tools dynamically
         available_tools = [t["name"] for t in fetch_data("tools")]
         a_tools = st.multiselect("Authorized Tools", available_tools)
         
@@ -110,8 +117,20 @@ elif page == "Workflow Manager":
             wf_id = st.text_input("Workflow ID (e.g., WF_ONBOARDING)")
             wf_name = st.text_input("Workflow Name")
             wf_desc = st.text_input("Description")
+            
+            # 🟢 EPIC 1 ADDITIONS: Optional prompts on creation
+            st.markdown("**(Optional) Override Global Prompts**")
+            wf_sup_prompt = st.text_area("Custom Supervisor Routing Rules", help="Leave blank to use global defaults.")
+            wf_syn_prompt = st.text_area("Custom Synthesizer Persona", help="Leave blank to use global defaults.")
+            
             if st.form_submit_button("Create Workflow"):
-                if post_data("workflows", {"id": wf_id, "name": wf_name, "description": wf_desc}):
+                payload = {"id": wf_id, "name": wf_name, "description": wf_desc}
+                if wf_sup_prompt.strip():
+                    payload["supervisor_prompt"] = wf_sup_prompt.strip()
+                if wf_syn_prompt.strip():
+                    payload["synthesizer_prompt"] = wf_syn_prompt.strip()
+                    
+                if post_data("workflows", payload):
                     st.success("Workflow created!")
                     st.rerun()
 
@@ -134,6 +153,23 @@ elif page == "Workflow Manager":
     for wf in workflows:
         with st.expander(f"⚙️ {wf['name']} ({wf['id']})"):
             st.write(f"**Description:** {wf['description']}")
+            
+            # 🟢 EPIC 1 ADDITIONS: Editable Custom Prompts Form
+            with st.form(f"update_prompts_{wf['id']}"):
+                st.markdown("**🧠 Custom Workflow Prompts**")
+                new_sup = st.text_area("Supervisor Routing Rules", value=wf.get("supervisor_prompt", "") or "", height=120)
+                new_syn = st.text_area("Synthesizer Persona", value=wf.get("synthesizer_prompt", "") or "", height=120)
+                
+                if st.form_submit_button("💾 Save Custom Prompts"):
+                    update_payload = {
+                        "supervisor_prompt": new_sup.strip() if new_sup.strip() else None,
+                        "synthesizer_prompt": new_syn.strip() if new_syn.strip() else None
+                    }
+                    if put_data(f"workflows/{wf['id']}", update_payload):
+                        st.success("Prompts updated successfully!")
+                        st.rerun()
+
+            st.write("---")
             wf_agents = fetch_data(f"workflows/{wf['id']}/agents")
             if wf_agents:
                 st.write("**Mapped Agents:**")
@@ -147,7 +183,115 @@ elif page == "Workflow Manager":
                 st.warning("No agents mapped to this workflow yet.")
 
 # ==========================================
-# 🧪 PAGE 4: AGENT PLAYGROUND
+# 🧪 PAGE 4: TDD FABRICATOR
+# ==========================================
+elif page == "TDD Fabricator":
+    st.title("🧪 Test-Driven Agent Fabricator")
+    st.markdown("Upload Golden Test Cases to auto-architect the required Domain Agents.")
+    
+    # --- PHASE 1: THE DRAFTING INPUTS ---
+    with st.expander("📝 Step 1: Define Workflow & Upload Tests", expanded=True):
+        col1, col2 = st.columns(2)
+        wf_id = col1.text_input("Workflow ID", value="WF_NEW_01")
+        wf_name = col2.text_input("Workflow Name", value="New Domain Workflow")
+        wf_desc = st.text_area("High-Level Description")
+        
+        existing_agents = fetch_data("agents")
+        agent_options = [a["id"] for a in existing_agents] if existing_agents else []
+        mandatory_agents = st.multiselect("Pre-Approved / Mandatory Agents to Include", agent_options)
+        
+        st.markdown("### Golden Test Dataset")
+        upload_mode = st.radio("Input Method", ["Upload CSV/Excel", "Manual Entry"])
+        
+        test_cases = []
+        if upload_mode == "Upload CSV/Excel":
+            uploaded_file = st.file_uploader("Upload file (Must contain 'Question' and 'Expected Answer' columns)", type=['csv', 'xlsx'])
+            if uploaded_file:
+                df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
+                st.dataframe(df, use_container_width=True)
+                # Standardize column mapping dynamically
+                if not df.empty:
+                    q_col = next((c for c in df.columns if 'question' in str(c).lower()), df.columns[0])
+                    a_col = next((c for c in df.columns if 'expected' in str(c).lower() or 'answer' in str(c).lower()), df.columns[1] if len(df.columns) > 1 else df.columns[0])
+                    for _, row in df.iterrows():
+                        test_cases.append({"question": str(row[q_col]), "expected_answer": str(row[a_col])})
+        else:
+            edited_df = st.data_editor(pd.DataFrame([{"Question": "", "Expected Answer": ""}]), num_rows="dynamic", use_container_width=True)
+            for _, row in edited_df.iterrows():
+                if row["Question"] and row["Expected Answer"]:
+                    test_cases.append({"question": str(row["Question"]), "expected_answer": str(row["Expected Answer"])})
+
+        if st.button("🧠 Propose Architecture (Phase 1)", type="primary", disabled=len(test_cases) == 0):
+            with st.spinner("Analyzing DB, Tools, and Tests... Reverse-engineering architecture..."):
+                payload = {
+                    "workflow_name": wf_name,
+                    "workflow_description": wf_desc,
+                    "mandatory_agents": mandatory_agents,
+                    "test_cases": test_cases
+                }
+                proposal = post_data("fabricator/propose", payload)
+                if proposal:
+                    st.session_state.proposal = proposal
+                    st.session_state.wf_id = wf_id
+                    st.session_state.wf_name = wf_name
+                    st.session_state.wf_desc = wf_desc
+                    st.success("Draft Architecture Generated! See Step 2.")
+
+    # --- PHASE 2: HUMAN IN THE LOOP APPROVAL ---
+    if "proposal" in st.session_state:
+        st.markdown("---")
+        st.subheader("🔍 Step 2: Human-in-the-Loop Review & Deploy")
+        
+        prop = st.session_state.proposal
+        
+        st.info(f"**Fabricator Thought Process:**\n{prop.get('thought_process', 'N/A')}")
+        
+        st.write(f"**Resolved Agent Roster (Total: {len(prop.get('final_resolved_agents', []))}):**")
+        final_roster_input = st.text_input("Final Agent Roster (Comma separated IDs)", value=",".join(prop.get("final_resolved_agents", [])))
+        
+        new_agents = prop.get("domain_agents", [])
+        edited_new_agents = []
+        
+        if new_agents:
+            st.warning(f"⚠️ Fabricator is proposing {len(new_agents)} BRAND NEW agents. Review and edit their code before deployment.")
+            
+            tools_data = fetch_data("tools")
+            available_tools = [t["name"] for t in tools_data] if tools_data else []
+            
+            for i, agent in enumerate(new_agents):
+                with st.container(border=True):
+                    st.write(f"#### Draft Agent {i+1}")
+                    e_id = st.text_input("Agent ID", value=agent.get("name"), key=f"id_{i}")
+                    e_desc = st.text_input("Routing Description", value=agent.get("routing_description"), key=f"desc_{i}")
+                    e_tools = st.multiselect("Tools", available_tools, default=agent.get("authorized_tools", []), key=f"tools_{i}")
+                    e_persona = st.text_area("Persona prompt", value=agent.get("persona"), height=150, key=f"per_{i}")
+                    
+                    edited_new_agents.append({
+                        "id": e_id, 
+                        "name": e_id.replace("_domain_agent", "").replace("_", " ").title(),
+                        "routing_description": e_desc, 
+                        "persona": e_persona, 
+                        "authorized_tools": e_tools
+                    })
+        else:
+            st.success("✅ No new agents required! Existing inventory is sufficient to pass tests.")
+
+        if st.button("🚀 Deploy Approved Architecture to Database", type="primary"):
+            deploy_payload = {
+                "workflow_id": st.session_state.wf_id,
+                "workflow_name": st.session_state.wf_name,
+                "workflow_description": st.session_state.wf_desc,
+                "final_resolved_agents": [x.strip() for x in final_roster_input.split(",") if x.strip()],
+                "new_agents_to_create": edited_new_agents
+            }
+            with st.spinner("Committing to SQLite..."):
+                res = post_data("fabricator/deploy", deploy_payload)
+                if res:
+                    st.success(res.get("message", "Workflow deployed successfully!"))
+                    del st.session_state.proposal # Clear state on success
+
+# ==========================================
+# 🎮 PAGE 5: PLAYGROUND
 # ==========================================
 elif page == "Playground":
     st.title("Agent Playground")
@@ -171,7 +315,7 @@ elif page == "Playground":
                     st.info(result.get("final_answer", "No answer generated."))
 
 # ==========================================
-# 💬 PAGE 5: EXECUTION CHAT
+# 💬 PAGE 6: EXECUTION CHAT
 # ==========================================
 elif page == "Execution Chat":
     st.title("LangGraph Chat Execution")
