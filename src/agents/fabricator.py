@@ -136,10 +136,17 @@ class DomainFabricator:
         
         CRITICAL INSTRUCTIONS:
         1. THOUGHT PROCESS: Analyze the Golden Test Dataset. Determine exactly what data is needed to answer these questions. Check the EXISTING AGENTS to see if they can fetch this data using their tools. Identify any capability gaps.
-        2. DOMAIN AGENTS: Generate blueprints for ONLY the BRAND NEW agents required to fill the gaps. Keep personas concise and focused on passing the tests.
+        
+        2. DOMAIN AGENTS: Generate blueprints for ONLY the BRAND NEW agents required to fill the gaps. 
+           - 🛑 RULE: You MUST use Defensive Prompting. Give the agent strict step-by-step instructions. (e.g., "1. Always verify the database schema first. 2. Ensure you have the required ID before searching.") Tell the agent exactly what it is NOT allowed to do.
+           
         3. FINAL ROSTER: Populate 'final_resolved_agents' with the names of ALL agents required (your new ones + the existing ones you are reusing).
+        
         4. ZERO-HALLUCINATION TOOL RULE: When assigning 'authorized_tools', you are strictly FORBIDDEN from making up tool names. You MUST ONLY use the exact string names provided in the 'AVAILABLE TOOLS IN FACTORY INVENTORY' list above.
-        5. WORKFLOW PROMPTS: Generate 'proposed_supervisor_rules' instructing the Supervisor exactly how to route between your 'final_resolved_agents'. Generate a 'proposed_synthesizer_persona' dictating how the final answer should be formatted.
+        
+        5. 🟢 WORKFLOW PROMPTS (THE ORCHESTRATION LAYER): 
+           - 'proposed_supervisor_rules': Write strict, clinical routing rules. Define the boundaries. Give it explicit conditional logic (e.g., "If the request is ambiguous, ask a clarifying question. If the user asks for exact metrics, route to Agent X. If semantic, route to Agent Y."). Explicitly command it NOT to answer questions directly or hallucinate data.
+           - 'proposed_synthesizer_persona': Command it to act as an Executive Synthesizer. Strictly forbid hallucinating data outside the conversation history. Require professional formatting (Markdown, headers, bullet points, or tables) to make the final output pristine.
         """
         
         print("🧠 Fabricator is reasoning about the Golden Test Dataset...")
